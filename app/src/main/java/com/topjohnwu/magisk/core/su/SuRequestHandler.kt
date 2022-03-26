@@ -1,17 +1,15 @@
 package com.topjohnwu.magisk.core.su
 
 import android.content.Intent
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import com.topjohnwu.magisk.BuildConfig
 import com.topjohnwu.magisk.core.Config
 import com.topjohnwu.magisk.core.magiskdb.PolicyDao
 import com.topjohnwu.magisk.core.model.su.SuPolicy
-import com.topjohnwu.magisk.core.model.su.toPolicy
-import com.topjohnwu.magisk.ktx.now
+import com.topjohnwu.magisk.ktx.getPackageInfo
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.Closeable
@@ -21,12 +19,14 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class SuRequestHandler(
-    private val pm: PackageManager,
+    val pm: PackageManager,
     private val policyDB: PolicyDao
 ) : Closeable {
 
     private lateinit var output: DataOutputStream
     lateinit var policy: SuPolicy
+        private set
+    lateinit var pkgInfo: PackageInfo
         private set
 
     // Return true to indicate undetermined policy, require user interaction
@@ -35,7 +35,7 @@ class SuRequestHandler(
             return false
 
         // Never allow com.topjohnwu.magisk (could be malware)
-        if (policy.packageName == BuildConfig.APPLICATION_ID) {
+        if (pkgInfo.packageName == BuildConfig.APPLICATION_ID) {
             Shell.cmd("(pm uninstall ${BuildConfig.APPLICATION_ID})& >/dev/null 2>&1").exec()
             return false
         }
@@ -54,26 +54,27 @@ class SuRequestHandler(
         return true
     }
 
-    @Throws(IOException::class)
     override fun close() {
         if (::output.isInitialized)
-            output.close()
+            runCatching { output.close() }
     }
 
     private class SuRequestError : IOException()
 
     private suspend fun init(intent: Intent) = withContext(Dispatchers.IO) {
         try {
-            val name = intent.getStringExtra("fifo") ?: throw SuRequestError()
+            val fifo = intent.getStringExtra("fifo") ?: throw SuRequestError()
             val uid = intent.getIntExtra("uid", -1).also { if (it < 0) throw SuRequestError() }
-            output = DataOutputStream(FileOutputStream(name).buffered())
-            policy = uid.toPolicy(pm)
+            val pid = intent.getIntExtra("pid", -1)
+            pkgInfo = pm.getPackageInfo(uid, pid) ?: throw SuRequestError()
+            output = DataOutputStream(FileOutputStream(fifo).buffered())
+            policy = SuPolicy(uid)
             true
         } catch (e: Exception) {
             when (e) {
                 is IOException, is PackageManager.NameNotFoundException -> {
                     Timber.e(e)
-                    runCatching { close() }
+                    close()
                     false
                 }
                 else -> throw e  // Unexpected error
@@ -81,23 +82,24 @@ class SuRequestHandler(
         }
     }
 
-    fun respond(action: Int, time: Int) {
+    suspend fun respond(action: Int, time: Int) {
         val until = if (time > 0)
-            TimeUnit.MILLISECONDS.toSeconds(now) + TimeUnit.MINUTES.toSeconds(time.toLong())
+            TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis()) +
+                TimeUnit.MINUTES.toSeconds(time.toLong())
         else
             time.toLong()
 
         policy.policy = action
         policy.until = until
 
-        GlobalScope.launch(Dispatchers.IO) {
+        withContext(Dispatchers.IO) {
             try {
                 output.writeInt(policy.policy)
                 output.flush()
             } catch (e: IOException) {
                 Timber.e(e)
             } finally {
-                runCatching { close() }
+                close()
                 if (until >= 0)
                     policyDB.update(policy)
             }
