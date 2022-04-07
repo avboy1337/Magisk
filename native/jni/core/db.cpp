@@ -7,7 +7,7 @@
 #include <socket.hpp>
 #include <utils.hpp>
 
-#define DB_VERSION 11
+#define DB_VERSION 12
 
 using namespace std;
 
@@ -154,45 +154,59 @@ static char *open_and_init_db(sqlite3 *&db) {
         sqlite3_close(db);
         return strdup("Downgrading database is not supported");
     }
-    if (ver < 3) {
-        // Policies
+
+    auto create_policy = [&] {
         sqlite3_exec(db,
                 "CREATE TABLE IF NOT EXISTS policies "
-                "(uid INT, package_name TEXT, policy INT, until INT, "
-                "logging INT, notification INT, PRIMARY KEY(uid))",
+                "(uid INT, policy INT, until INT, logging INT, "
+                "notification INT, PRIMARY KEY(uid))",
                 nullptr, nullptr, &err);
-        err_ret(err);
-        // Settings
+    };
+    auto create_settings = [&] {
         sqlite3_exec(db,
                 "CREATE TABLE IF NOT EXISTS settings "
                 "(key TEXT, value INT, PRIMARY KEY(key))",
                 nullptr, nullptr, &err);
-        err_ret(err);
-        ver = 3;
-        upgrade = true;
-    }
-    if (ver < 4) {
-        // Strings
+    };
+    auto create_strings = [&] {
         sqlite3_exec(db,
                 "CREATE TABLE IF NOT EXISTS strings "
                 "(key TEXT, value TEXT, PRIMARY KEY(key))",
                 nullptr, nullptr, &err);
-        err_ret(err);
-        /* Directly jump to version 6 */
-        ver = 6;
-        upgrade = true;
-    }
-    if (ver < 7) {
+    };
+    auto create_denylist = [&] {
         sqlite3_exec(db,
-                "CREATE TABLE IF NOT EXISTS hidelist "
-                "(package_name TEXT, process TEXT, PRIMARY KEY(package_name, process));",
+                "CREATE TABLE IF NOT EXISTS denylist "
+                "(package_name TEXT, process TEXT, PRIMARY KEY(package_name, process))",
                 nullptr, nullptr, &err);
+    };
+
+    // Database changelog:
+    //
+    // 0 - 6: DB stored in app private data. There are no longer any code in the project to
+    //        migrate these data, so no need to take any of these versions into consideration.
+    // 7 : create table `hidelist` (process TEXT, PRIMARY KEY(process))
+    // 8 : add new column (package_name TEXT) to table `hidelist`
+    // 9 : rebuild table `hidelist` to change primary key (PRIMARY KEY(package_name, process))
+    // 10: remove table `logs`
+    // 11: remove table `hidelist` and create table `denylist` (same data structure)
+    // 12: rebuild table `policies` to drop column `package_name`
+
+    if (/* 0, 1, 2, 3, 4, 5, 6 */ ver <= 6) {
+        create_policy();
         err_ret(err);
-        /* Directly jump to version 9 */
-        ver = 9;
+        create_settings();
+        err_ret(err);
+        create_strings();
+        err_ret(err);
+        create_denylist();
+        err_ret(err);
+
+        // Directly jump to latest
+        ver = DB_VERSION;
         upgrade = true;
     }
-    if (ver < 8) {
+    if (ver == 7) {
         sqlite3_exec(db,
                 "BEGIN TRANSACTION;"
                 "ALTER TABLE hidelist RENAME TO hidelist_tmp;"
@@ -203,11 +217,11 @@ static char *open_and_init_db(sqlite3 *&db) {
                 "COMMIT;",
                 nullptr, nullptr, &err);
         err_ret(err);
-        /* Directly jump to version 9 */
+        // Directly jump to version 9
         ver = 9;
         upgrade = true;
     }
-    if (ver < 9) {
+    if (ver == 8) {
         sqlite3_exec(db,
                 "BEGIN TRANSACTION;"
                 "ALTER TABLE hidelist RENAME TO hidelist_tmp;"
@@ -221,21 +235,37 @@ static char *open_and_init_db(sqlite3 *&db) {
         ver = 9;
         upgrade = true;
     }
-    if (ver < 10) {
+    if (ver == 9) {
         sqlite3_exec(db, "DROP TABLE IF EXISTS logs", nullptr, nullptr, &err);
         err_ret(err);
         ver = 10;
         upgrade = true;
     }
-    if (ver < 11) {
+    if (ver == 10) {
         sqlite3_exec(db,
                 "DROP TABLE IF EXISTS hidelist;"
-                "CREATE TABLE IF NOT EXISTS denylist "
-                "(package_name TEXT, process TEXT, PRIMARY KEY(package_name, process));"
                 "DELETE FROM settings WHERE key='magiskhide';",
                 nullptr, nullptr, &err);
         err_ret(err);
+        create_denylist();
+        err_ret(err);
         ver = 11;
+        upgrade = true;
+    }
+    if (ver == 11) {
+        sqlite3_exec(db,
+                "BEGIN TRANSACTION;"
+                "ALTER TABLE policies RENAME TO policies_tmp;"
+                "CREATE TABLE IF NOT EXISTS policies "
+                "(uid INT, policy INT, until INT, logging INT, "
+                "notification INT, PRIMARY KEY(uid));"
+                "INSERT INTO policies "
+                "SELECT uid, policy, until, logging, notification FROM policies_tmp;"
+                "DROP TABLE policies_tmp;"
+                "COMMIT;",
+                nullptr, nullptr, &err);
+        err_ret(err);
+        ver = 12;
         upgrade = true;
     }
 
