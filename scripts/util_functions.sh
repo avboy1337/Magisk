@@ -413,7 +413,7 @@ get_flags() {
       PATCHVBMETAFLAG=false
     else
       PATCHVBMETAFLAG=true
-      ui_print "- Cannot find vbmeta partition, patch vbmeta in boot image"
+      ui_print "- No vbmeta partition, patch vbmeta in boot image"
     fi
   fi
   [ -z $RECOVERYMODE ] && RECOVERYMODE=false
@@ -577,16 +577,13 @@ check_data() {
 
 find_magisk_apk() {
   local DBAPK
-  [ -z $APK ] && APK=$NVBASE/magisk.apk
-  [ -f $APK ] || APK=$MAGISKBIN/magisk.apk
-  [ -f $APK ] || APK=/data/app/com.topjohnwu.magisk*/*.apk
-  [ -f $APK ] || APK=/data/app/*/com.topjohnwu.magisk*/*.apk
+  [ -z $APK ] && APK=/data/app/com.topjohnwu.magisk*/base.apk
+  [ -f $APK ] || APK=/data/app/*/com.topjohnwu.magisk*/base.apk
   if [ ! -f $APK ]; then
     DBAPK=$(magisk --sqlite "SELECT value FROM strings WHERE key='requester'" 2>/dev/null | cut -d= -f2)
     [ -z $DBAPK ] && DBAPK=$(strings $NVBASE/magisk.db | grep -oE 'requester..*' | cut -c10-)
-    [ -z $DBAPK ] || APK=/data/user_de/*/$DBAPK/dyn/*.apk
-    [ -f $APK ] || [ -z $DBAPK ] || APK=/data/app/$DBAPK*/*.apk
-    [ -f $APK ] || [ -z $DBAPK ] || APK=/data/app/*/$DBAPK*/*.apk
+    [ -z $DBAPK ] || APK=/data/user_de/0/$DBAPK/dyn/current.apk
+    [ -f $APK ] || [ -z $DBAPK ] || APK=/data/data/$DBAPK/dyn/current.apk
   fi
   [ -f $APK ] || ui_print "! Unable to detect Magisk app APK for BootSigner"
 }
@@ -654,9 +651,9 @@ copy_sepolicy_rules() {
   fi
 
   if [ -d ${RULESDIR%/magisk} ]; then
-    ui_print "- Sepolicy rules dir is ${RULESDIR%/magisk}"
+    echo "RULESDIR=$RULESDIR" >&2
   else
-    ui_print "- Sepolicy rules dir ${RULESDIR%/magisk} not found"
+    ui_print "- Unable to find sepolicy rules dir ${RULESDIR%/magisk}"
     return 1
   fi
 

@@ -32,6 +32,8 @@ void load_kernel_info(BootConfig *config);
 bool check_two_stage();
 void setup_klog();
 const char *backup_init();
+int dump_manager(const char *path, mode_t mode);
+int dump_preload(const char *path, mode_t mode);
 
 /***************
  * Base classes
@@ -63,7 +65,7 @@ protected:
     bool avd_hack = false;
 #endif
 
-    void patch_sepolicy(const char *file);
+    void patch_sepolicy(const char *in, const char *out);
     bool hijack_sepolicy();
     void setup_tmp(const char *path);
     void patch_rw_root();
