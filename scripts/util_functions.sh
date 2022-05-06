@@ -810,7 +810,7 @@ install_module() {
   rm -rf \
   $MODPATH/system/placeholder $MODPATH/customize.sh \
   $MODPATH/README.md $MODPATH/.git*
-  rmdir -p $MODPATH
+  rmdir -p $MODPATH 2>/dev/null
 
   cd /
   $BOOTMODE || recovery_cleanup
@@ -832,7 +832,7 @@ NVBASE=/data/adb
 TMPDIR=/dev/tmp
 
 # Bootsigner related stuff
-BOOTSIGNERCLASS=com.topjohnwu.signing.SignBoot
+BOOTSIGNERCLASS=com.topjohnwu.magisk.signing.SignBoot
 BOOTSIGNER='/system/bin/dalvikvm -Xnoimage-dex2oat -cp $APK $BOOTSIGNERCLASS'
 BOOTSIGNED=false
 
