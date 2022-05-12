@@ -1,10 +1,7 @@
 #include <sys/sendfile.h>
 #include <linux/fs.h>
-#include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <errno.h>
-#include <string.h>
 #include <libgen.h>
 
 #include <utils.hpp>
@@ -57,17 +54,34 @@ static void post_order_walk(int dirfd, const Func &fn) {
     }
 }
 
+enum walk_result {
+    CONTINUE, SKIP, ABORT
+};
+
 template <typename Func>
-static void pre_order_walk(int dirfd, const Func &fn) {
+static walk_result pre_order_walk(int dirfd, const Func &fn) {
     auto dir = xopen_dir(dirfd);
-    if (!dir) return;
+    if (!dir) {
+        close(dirfd);
+        return SKIP;
+    }
 
     for (dirent *entry; (entry = xreaddir(dir.get()));) {
-        if (!fn(dirfd, entry))
+        switch (fn(dirfd, entry)) {
+        case CONTINUE:
+            break;
+        case SKIP:
             continue;
-        if (entry->d_type == DT_DIR)
-            pre_order_walk(xopenat(dirfd, entry->d_name, O_RDONLY | O_CLOEXEC), fn);
+        case ABORT:
+            return ABORT;
+        }
+        if (entry->d_type == DT_DIR) {
+            int fd = xopenat(dirfd, entry->d_name, O_RDONLY | O_CLOEXEC);
+            if (pre_order_walk(fd, fn) == ABORT)
+                return ABORT;
+        }
     }
+    return CONTINUE;
 }
 
 static void remove_at(int dirfd, struct dirent *entry) {
@@ -400,20 +414,20 @@ void parse_mnt(const char *file, const function<bool(mntent*)> &fn) {
 }
 
 void backup_folder(const char *dir, vector<raw_file> &files) {
-    char path[4096];
+    char path[PATH_MAX];
     xrealpath(dir, path);
     int len = strlen(path);
-    pre_order_walk(xopen(dir, O_RDONLY), [&](int dfd, dirent *entry) -> bool {
+    pre_order_walk(xopen(dir, O_RDONLY), [&](int dfd, dirent *entry) -> walk_result {
         int fd = xopenat(dfd, entry->d_name, O_RDONLY);
         if (fd < 0)
-            return false;
+            return SKIP;
         run_finally f([&]{ close(fd); });
         if (fd_path(fd, path, sizeof(path)) < 0)
-            return false;
+            return SKIP;
         raw_file file;
         file.path = path + len + 1;
         if (fgetattr(fd, &file.attr) < 0)
-            return false;
+            return SKIP;
         if (entry->d_type == DT_REG) {
             fd_full_read(fd, file.buf, file.sz);
         } else if (entry->d_type == DT_LNK) {
@@ -423,7 +437,7 @@ void backup_folder(const char *dir, vector<raw_file> &files) {
             memcpy(file.buf, path, file.sz);
         }
         files.emplace_back(std::move(file));
-        return true;
+        return CONTINUE;
     });
 }
 
@@ -506,4 +520,21 @@ mmap_data::mmap_data(const char *name, bool rw) {
             : nullptr;
     close(fd);
     buf = static_cast<uint8_t *>(b);
+}
+
+string find_apk_path(const char *pkg) {
+    char buf[PATH_MAX];
+    pre_order_walk(xopen("/data/app", O_RDONLY), [&](int dfd, dirent *entry) -> walk_result {
+        if (entry->d_type != DT_DIR)
+            return SKIP;
+        size_t len = strlen(pkg);
+        if (strncmp(entry->d_name, pkg, len) == 0 && entry->d_name[len] == '-') {
+            fd_pathat(dfd, entry->d_name, buf, sizeof(buf));
+            return ABORT;
+        } else if (strncmp(entry->d_name, "~~", 2) == 0) {
+            return CONTINUE;
+        } else return SKIP;
+    });
+    string path(buf);
+    return path.append("/base.apk");
 }

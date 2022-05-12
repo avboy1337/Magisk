@@ -73,7 +73,8 @@ class SuRequestViewModel(
     val itemBinding = ItemBinding.of<String>(BR.item, R.layout.item_spinner)
 
     private val handler = SuRequestHandler(AppContext.packageManager, policyDB)
-    private var timer: CountDownTimer? = null
+    private lateinit var timer: CountDownTimer
+    private var initialized = false
 
     fun grantPressed() {
         cancelTimer()
@@ -109,11 +110,21 @@ class SuRequestViewModel(
     private fun showDialog() {
         val pm = handler.pm
         val info = handler.pkgInfo
-        val prefix = if (info.sharedUserId == null) "" else "[SharedUID] "
+        val app = info.applicationInfo
 
-        icon = info.applicationInfo.loadIcon(pm)
-        title = "$prefix${info.applicationInfo.getLabel(pm)}"
-        packageName = info.packageName
+        if (app == null) {
+            // The request is not coming from an app process, and the UID is a
+            // shared UID. We have no way to know where this request comes from.
+            icon = pm.defaultActivityIcon
+            title = "[SharedUID] ${info.sharedUserId}"
+            packageName = info.sharedUserId
+        } else {
+            val prefix = if (info.sharedUserId == null) "" else "[SharedUID] "
+            icon = app.loadIcon(pm)
+            title = "$prefix${app.getLabel(pm)}"
+            packageName = info.packageName
+        }
+
         selectedItemPosition = timeoutPrefs.getInt(packageName, 0)
 
         // Set timer
@@ -122,13 +133,19 @@ class SuRequestViewModel(
 
         // Actually show the UI
         ShowUIEvent(if (Config.suTapjack) EmptyAccessibilityDelegate else null).publish()
+        initialized = true
     }
 
     private fun respond(action: Int) {
-        timer?.cancel()
+        if (!initialized) {
+            // ignore the response until showDialog done
+            return
+        }
+
+        timer.cancel()
 
         val pos = selectedItemPosition
-        timeoutPrefs.edit().putInt(handler.pkgInfo.packageName, pos).apply()
+        timeoutPrefs.edit().putInt(packageName, pos).apply()
 
         viewModelScope.launch {
             handler.respond(action, Config.Value.TIMEOUT_LIST[pos])
@@ -138,7 +155,7 @@ class SuRequestViewModel(
     }
 
     private fun cancelTimer() {
-        timer?.cancel()
+        timer.cancel()
         denyText.seconds = 0
     }
 

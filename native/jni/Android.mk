@@ -13,7 +13,8 @@ LOCAL_STATIC_LIBRARIES := \
     libnanopb \
     libsystemproperties \
     libphmap \
-    libxhook
+    libxhook \
+    libmincrypt
 
 LOCAL_SRC_FILES := \
     core/applets.cpp \
@@ -32,6 +33,7 @@ LOCAL_SRC_FILES := \
     su/su.cpp \
     su/connect.cpp \
     su/pts.cpp \
+    su/cert.cpp \
     su/su_daemon.cpp \
     zygisk/entry.cpp \
     zygisk/main.cpp \
