@@ -14,12 +14,13 @@ import com.topjohnwu.magisk.core.tasks.FlashZip
 import com.topjohnwu.magisk.core.tasks.MagiskInstaller
 import com.topjohnwu.magisk.core.utils.MediaStoreUtils
 import com.topjohnwu.magisk.core.utils.MediaStoreUtils.outputStream
-import com.topjohnwu.magisk.databinding.RvBindingAdapter
 import com.topjohnwu.magisk.databinding.diffListOf
-import com.topjohnwu.magisk.databinding.itemBindingOf
 import com.topjohnwu.magisk.databinding.set
 import com.topjohnwu.magisk.events.SnackbarEvent
-import com.topjohnwu.magisk.ktx.*
+import com.topjohnwu.magisk.ktx.reboot
+import com.topjohnwu.magisk.ktx.synchronized
+import com.topjohnwu.magisk.ktx.timeFormatStandard
+import com.topjohnwu.magisk.ktx.toTime
 import com.topjohnwu.superuser.CallbackList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -33,9 +34,7 @@ class FlashViewModel : BaseViewModel() {
     private val _subtitle = MutableLiveData(R.string.flashing)
     val subtitle get() = _subtitle as LiveData<Int>
 
-    val adapter = RvBindingAdapter<ConsoleItem>()
     val items = diffListOf<ConsoleItem>()
-    val itemBinding = itemBindingOf<ConsoleItem>()
     lateinit var args: FlashFragmentArgs
 
     private val logItems = mutableListOf<String>().synchronized()
@@ -100,7 +99,8 @@ class FlashViewModel : BaseViewModel() {
 
     private fun savePressed() = withExternalRW {
         viewModelScope.launch(Dispatchers.IO) {
-            val name = "magisk_install_log_%s.log".format(now.toTime(timeFormatStandard))
+            val name = "magisk_install_log_%s.log".format(
+                System.currentTimeMillis().toTime(timeFormatStandard))
             val file = MediaStoreUtils.getFile(name, true)
             file.uri.outputStream().bufferedWriter().use { writer ->
                 synchronized(logItems) {

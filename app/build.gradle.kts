@@ -56,10 +56,6 @@ android {
             keepDebugSymbols += "**/*.so"
         }
     }
-
-    kotlinOptions {
-        jvmTarget = "11"
-    }
 }
 
 setupApp()
@@ -82,12 +78,7 @@ dependencies {
     implementation("dev.rikka.rikkax.recyclerview:recyclerview-ktx:1.3.1")
     implementation("io.noties.markwon:core:4.6.2")
 
-    val vBAdapt = "4.0.0"
-    val bindingAdapter = "me.tatarka.bindingcollectionadapter2:bindingcollectionadapter"
-    implementation("${bindingAdapter}:${vBAdapt}")
-    implementation("${bindingAdapter}-recyclerview:${vBAdapt}")
-
-    val vLibsu = "5.0.1"
+    val vLibsu = "5.0.2"
     implementation("com.github.topjohnwu.libsu:core:${vLibsu}")
     implementation("com.github.topjohnwu.libsu:service:${vLibsu}")
     implementation("com.github.topjohnwu.libsu:nio:${vLibsu}")
@@ -111,12 +102,12 @@ dependencies {
     implementation("androidx.room:room-ktx:${vRoom}")
     kapt("androidx.room:room-compiler:${vRoom}")
 
-    val vNav = "2.5.0-beta01"
+    val vNav = "2.5.0-rc01"
     implementation("androidx.navigation:navigation-fragment-ktx:${vNav}")
     implementation("androidx.navigation:navigation-ui-ktx:${vNav}")
 
     implementation("androidx.biometric:biometric:1.1.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.3")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("androidx.appcompat:appcompat:1.4.1")
     implementation("androidx.preference:preference:1.2.0")
@@ -124,6 +115,6 @@ dependencies {
     implementation("androidx.fragment:fragment-ktx:1.4.1")
     implementation("androidx.transition:transition:1.4.1")
     implementation("androidx.core:core-ktx:1.7.0")
-    implementation("androidx.core:core-splashscreen:1.0.0-beta02")
+    implementation("androidx.core:core-splashscreen:1.0.0-rc01")
     implementation("com.google.android.material:material:1.6.0")
 }
