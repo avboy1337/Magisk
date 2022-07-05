@@ -27,8 +27,7 @@ abstract class UIActivity<Binding : ViewDataBinding> : BaseActivity(), ViewModel
     open val snackbarAnchorView: View? get() = null
 
     init {
-        val theme = Config.darkTheme
-        AppCompatDelegate.setDefaultNightMode(theme)
+        AppCompatDelegate.setDefaultNightMode(Config.darkTheme)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -90,7 +89,10 @@ abstract class UIActivity<Binding : ViewDataBinding> : BaseActivity(), ViewModel
 
     override fun onResume() {
         super.onResume()
-        viewModel.requestRefresh()
+        viewModel.let {
+            if (it is AsyncLoadViewModel)
+                it.startLoading()
+        }
     }
 
     override fun onEventDispatched(event: ViewEvent) = when (event) {

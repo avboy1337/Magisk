@@ -130,7 +130,7 @@
     <string name="system_default">(Mặc định hệ thống)</string>
     <string name="settings_check_update_title">Kiểm tra cập nhật</string>
     <string name="settings_check_update_summary">Kiểm tra định kỳ các bản cập nhật trong nền</string>
-    <string name="settings_update_channel_title">Cập nhật kênh</string>
+    <string name="settings_update_channel_title">Kênh cập nhật</string>
     <string name="settings_update_stable">Ổn định</string>
     <string name="settings_update_beta">Beta</string>
     <string name="settings_update_custom">Kênh tùy chỉnh</string>
@@ -141,7 +141,7 @@
     <string name="settings_denylist_error">Tính năng này yêu cầu %1$s được bật</string>
     <string name="settings_denylist_config_title">Cấu hình DenyList</string>
     <string name="settings_denylist_config_summary">Chọn các quy trình được đưa vào DenyList</string>
-    <string name="settings_hosts_title">Systemlest hosts</string>
+    <string name="settings_hosts_title">Systemless hosts</string>
     <string name="settings_hosts_summary">Hỗ trợ systemless hosts cho các ứng dụng chặn quảng cáo</string>
     <string name="settings_hosts_toast">Đã thêm mô-đun systemless hosts</string>
     <string name="settings_app_name_hint">Tên mới</string>

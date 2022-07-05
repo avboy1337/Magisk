@@ -1,4 +1,4 @@
-package com.topjohnwu.magisk.arch
+package com.topjohnwu.magisk.ui
 
 import android.Manifest.permission.REQUEST_INSTALL_PACKAGES
 import android.annotation.SuppressLint
@@ -9,6 +9,8 @@ import androidx.databinding.ViewDataBinding
 import androidx.lifecycle.lifecycleScope
 import com.topjohnwu.magisk.BuildConfig.APPLICATION_ID
 import com.topjohnwu.magisk.R
+import com.topjohnwu.magisk.StubApk
+import com.topjohnwu.magisk.arch.NavigationActivity
 import com.topjohnwu.magisk.core.Config
 import com.topjohnwu.magisk.core.Const
 import com.topjohnwu.magisk.core.JobService
@@ -24,16 +26,17 @@ import com.topjohnwu.magisk.view.Shortcuts
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.launch
 
-abstract class BaseMainActivity<Binding : ViewDataBinding> : NavigationActivity<Binding>() {
+@SuppressLint("CustomSplashScreen")
+abstract class SplashActivity<Binding : ViewDataBinding> : NavigationActivity<Binding>() {
 
     companion object {
-        private var doPreload = true
+        private var skipSplash = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setTheme(Theme.selected.themeRes)
 
-        if (isRunningAsStub && doPreload) {
+        if (isRunningAsStub && !skipSplash) {
             // Manually apply splash theme for stub
             theme.applyStyle(R.style.StubSplashTheme, true)
         }
@@ -42,28 +45,19 @@ abstract class BaseMainActivity<Binding : ViewDataBinding> : NavigationActivity<
 
         if (!isRunningAsStub) {
             val splashScreen = installSplashScreen()
-            splashScreen.setKeepOnScreenCondition { doPreload }
+            splashScreen.setKeepOnScreenCondition { !skipSplash }
         }
 
-        if (doPreload) {
+        if (skipSplash) {
+            showMainUI(savedInstanceState)
+        } else {
             Shell.getShell(Shell.EXECUTOR) {
                 if (isRunningAsStub && !it.isRoot) {
                     showInvalidStateMessage()
                     return@getShell
                 }
-                preLoad()
-                runOnUiThread {
-                    doPreload = false
-                    if (isRunningAsStub) {
-                        // Re-launch main activity without splash theme
-                        relaunch()
-                    } else {
-                        showMainUI(savedInstanceState)
-                    }
-                }
+                preLoad(savedInstanceState)
             }
-        } else {
-            showMainUI(savedInstanceState)
         }
     }
 
@@ -83,7 +77,7 @@ abstract class BaseMainActivity<Binding : ViewDataBinding> : NavigationActivity<
                             showInvalidStateMessage()
                         } else {
                             lifecycleScope.launch {
-                                HideAPK.restore(this@BaseMainActivity)
+                                HideAPK.restore(this@SplashActivity)
                             }
                         }
                     }
@@ -94,11 +88,25 @@ abstract class BaseMainActivity<Binding : ViewDataBinding> : NavigationActivity<
         }
     }
 
-    private fun preLoad() {
-        val prevPkg = intent.getStringExtra(Const.Key.PREV_PKG)
+    private fun preLoad(savedState: Bundle?) {
+        val prevPkg = intent.getStringExtra(Const.Key.PREV_PKG)?.let {
+            // Make sure the calling package matches (prevent DoS)
+            if (it == realCallingPackage)
+                it
+            else
+                null
+        }
 
         Config.load(prevPkg)
         handleRepackage(prevPkg)
+        if (prevPkg != null) {
+            runOnUiThread {
+                // Relaunch the process after package migration
+                StubApk.restartProcess(this)
+            }
+            return
+        }
+
         Notifications.setup(this)
         JobService.schedule(this)
         Shortcuts.setupDynamic(this)
@@ -108,6 +116,16 @@ abstract class BaseMainActivity<Binding : ViewDataBinding> : NavigationActivity<
 
         // Wait for root service
         RootUtils.Connection.await()
+
+        runOnUiThread {
+            skipSplash = true
+            if (isRunningAsStub) {
+                // Re-launch main activity without splash theme
+                relaunch()
+            } else {
+                showMainUI(savedState)
+            }
+        }
     }
 
     private fun handleRepackage(pkg: String?) {
@@ -118,13 +136,10 @@ abstract class BaseMainActivity<Binding : ViewDataBinding> : NavigationActivity<
                 Shell.cmd("(pm uninstall $APPLICATION_ID)& >/dev/null 2>&1").exec()
             }
         } else {
-            if (Config.suManager.isNotEmpty())
+            if (!Const.Version.atLeast_25_0() && Config.suManager.isNotEmpty())
                 Config.suManager = ""
             pkg ?: return
-            if (!Shell.cmd("(pm uninstall $pkg)& >/dev/null 2>&1").exec().isSuccess) {
-                // Uninstall through Android API
-                uninstallAndWait(pkg)
-            }
+            Shell.cmd("(pm uninstall $pkg)& >/dev/null 2>&1").exec()
         }
     }
 
