@@ -211,6 +211,7 @@ def binary_dump(src, var_name):
 
 def run_ndk_build(flags):
     os.chdir('native')
+    flags = 'NDK_PROJECT_PATH=. NDK_APPLICATION_MK=src/Application.mk ' + flags
     proc = system(f'{ndk_build} {flags} -j{cpu_count}')
     if proc.returncode != 0:
         error('Build binary failed!')
@@ -223,17 +224,18 @@ def run_ndk_build(flags):
 
 
 def run_cargo_build(args):
-    os.chdir(op.join('native', 'rust'))
+    os.chdir(op.join('native', 'src'))
     targets = set(args.target) & set(rust_targets)
 
     env = os.environ.copy()
     env['CARGO_BUILD_RUSTC'] = op.join(rust_bin, 'rustc' + EXE_EXT)
 
     # Install cxxbridge and generate C++ bindings
-    native_out = op.join('..', '..', 'native', 'out')
+    native_out = op.join('..', 'out')
+    cxx_src = op.join('external', 'cxx-rs', 'gen', 'cmd')
     local_cargo_root = op.join(native_out, '.cargo')
     mkdir_p(local_cargo_root)
-    cmds = [cargo, 'install', '--root', local_cargo_root, 'cxxbridge-cmd']
+    cmds = [cargo, 'install', '--root', local_cargo_root, '--path', cxx_src]
     if not args.verbose:
         cmds.append('-q')
     proc = execv(cmds, env)
@@ -242,9 +244,9 @@ def run_cargo_build(args):
     cxxbridge = op.join(local_cargo_root, 'bin', 'cxxbridge' + EXE_EXT)
     mkdir(native_gen_path)
     for p in ['base', 'boot', 'core', 'init', 'sepolicy']:
-        text = cmd_out([cxxbridge, op.join(p, 'src', 'lib.rs')])
+        text = cmd_out([cxxbridge, op.join(p, 'lib.rs')])
         write_if_diff(op.join(native_gen_path, f'{p}-rs.cpp'), text)
-        text = cmd_out([cxxbridge, '--header', op.join(p, 'src', 'lib.rs')])
+        text = cmd_out([cxxbridge, '--header', op.join(p, 'lib.rs')])
         write_if_diff(op.join(native_gen_path, f'{p}-rs.hpp'), text)
 
     # Start building the actual build commands
@@ -425,7 +427,7 @@ def cleanup(args):
 
     if 'java' in args.target:
         header('* Cleaning java')
-        execv([gradlew, 'clean'])
+        execv([gradlew, 'app:clean', 'app:shared:clean', 'stub:clean'])
 
 
 def setup_ndk(args):
@@ -458,14 +460,17 @@ def setup_ndk(args):
 
 def setup_avd(args):
     if not args.skip:
-        args.release = False
         build_all(args)
 
     header('* Setting up emulator')
 
     abi = cmd_out([adb_path, 'shell', 'getprop', 'ro.product.cpu.abi'])
-    proc = execv([adb_path, 'push', f'native/out/{abi}/busybox', 'out/app-debug.apk',
-           'scripts/avd_magisk.sh', '/data/local/tmp'])
+    proc = execv([adb_path, 'push', f'native/out/{abi}/busybox', 'scripts/avd_magisk.sh', '/data/local/tmp'])
+    if proc.returncode != 0:
+        error('adb push failed!')
+
+    apk = 'out/app-release.apk' if args.release else 'out/app-debug.apk'
+    proc = execv([adb_path, 'push', apk, '/data/local/tmp/magisk.apk'])
     if proc.returncode != 0:
         error('adb push failed!')
 
@@ -499,10 +504,15 @@ def patch_avd_ramdisk(args):
             f.write(adv_ft)
 
     abi = cmd_out([adb_path, 'shell', 'getprop', 'ro.product.cpu.abi'])
-    proc = execv([adb_path, 'push', f'native/out/{abi}/busybox', 'out/app-debug.apk',
-           'scripts/avd_patch.sh', '/data/local/tmp'])
+    proc = execv([adb_path, 'push', f'native/out/{abi}/busybox', 'scripts/avd_patch.sh', '/data/local/tmp'])
     if proc.returncode != 0:
         error('adb push failed!')
+
+    apk = 'out/app-release.apk' if args.release else 'out/app-debug.apk'
+    proc = execv([adb_path, 'push', apk, '/data/local/tmp/magisk.apk'])
+    if proc.returncode != 0:
+        error('adb push failed!')
+
     proc = execv([adb_path, 'push', backup, '/data/local/tmp/ramdisk.cpio.tmp'])
     if proc.returncode != 0:
         error('adb push failed!')
