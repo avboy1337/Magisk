@@ -9,9 +9,9 @@ import com.topjohnwu.magisk.core.data.SuLogDatabase
 import com.topjohnwu.magisk.core.data.magiskdb.PolicyDao
 import com.topjohnwu.magisk.core.data.magiskdb.SettingsDao
 import com.topjohnwu.magisk.core.data.magiskdb.StringDao
+import com.topjohnwu.magisk.core.ktx.deviceProtectedContext
 import com.topjohnwu.magisk.core.repository.LogRepository
 import com.topjohnwu.magisk.core.repository.NetworkService
-import com.topjohnwu.magisk.ktx.deviceProtectedContext
 import io.noties.markwon.Markwon
 import io.noties.markwon.utils.NoCopySpannableFactory
 
@@ -39,7 +39,6 @@ object ServiceLocator {
         NetworkService(
             createApiService(retrofit, Const.Url.GITHUB_PAGE_URL),
             createApiService(retrofit, Const.Url.GITHUB_RAW_URL),
-            createApiService(retrofit, Const.Url.GITHUB_API_URL)
         )
     }
 }

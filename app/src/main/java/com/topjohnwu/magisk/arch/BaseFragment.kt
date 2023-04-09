@@ -5,13 +5,13 @@ import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.view.MenuProvider
 import androidx.databinding.DataBindingUtil
 import androidx.databinding.OnRebindCallback
 import androidx.databinding.ViewDataBinding
 import androidx.fragment.app.Fragment
 import androidx.navigation.NavDirections
 import com.topjohnwu.magisk.BR
-import com.topjohnwu.magisk.ktx.startAnimations
 
 abstract class BaseFragment<Binding : ViewDataBinding> : Fragment(), ViewModelHolder {
 
@@ -66,6 +66,8 @@ abstract class BaseFragment<Binding : ViewDataBinding> : Fragment(), ViewModelHo
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        if (this is MenuProvider)
+            activity?.addMenuProvider(this, viewLifecycleOwner)
         binding.addOnRebindCallback(object : OnRebindCallback<Binding>() {
             override fun onPreBind(binding: Binding): Boolean {
                 this@BaseFragment.onPreBind(binding)

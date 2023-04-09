@@ -1,7 +1,7 @@
+#include <set>
 #include <sys/mount.h>
 #include <sys/sysmacros.h>
 #include <libgen.h>
-#include <inttypes.h>
 
 #include <base.hpp>
 #include <selinux.hpp>
@@ -17,12 +17,14 @@ struct devinfo {
     char devname[32];
     char partname[32];
     char dmname[32];
+    char devpath[PATH_MAX];
 };
 
 static vector<devinfo> dev_list;
 
 static void parse_device(devinfo *dev, const char *uevent) {
     dev->partname[0] = '\0';
+    dev->devpath[0] = '\0';
     parse_prop_file(uevent, [=](string_view key, string_view value) -> bool {
         if (key == "MAJOR")
             dev->major = parse_int(value.data());
@@ -38,7 +40,7 @@ static void parse_device(devinfo *dev, const char *uevent) {
 }
 
 static void collect_devices() {
-    char path[128];
+    char path[PATH_MAX];
     devinfo dev{};
     if (auto dir = xopen_dir("/sys/dev/block"); dir) {
         for (dirent *entry; (entry = readdir(dir.get()));) {
@@ -51,6 +53,8 @@ static void collect_devices() {
                 auto name = rtrim(full_read(path));
                 strcpy(dev.dmname, name.data());
             }
+            sprintf(path, "/sys/dev/block/%s", entry->d_name);
+            xrealpath(path, dev.devpath, sizeof(dev.devpath));
             dev_list.push_back(dev);
         }
     }
@@ -61,7 +65,7 @@ static struct {
     char block_dev[64];
 } blk_info;
 
-static int64_t setup_block() {
+static dev_t setup_block() {
     if (dev_list.empty())
         collect_devices();
 
@@ -71,6 +75,10 @@ static int64_t setup_block() {
                 LOGD("Setup %s: [%s] (%d, %d)\n", dev.partname, dev.devname, dev.major, dev.minor);
             else if (strcasecmp(dev.dmname, blk_info.partname) == 0)
                 LOGD("Setup %s: [%s] (%d, %d)\n", dev.dmname, dev.devname, dev.major, dev.minor);
+            else if (strcasecmp(dev.devname, blk_info.partname) == 0)
+                LOGD("Setup %s: [%s] (%d, %d)\n", dev.devname, dev.devname, dev.major, dev.minor);
+            else if (std::string_view(dev.devpath).ends_with("/"s + blk_info.partname))
+                LOGD("Setup %s: [%s] (%d, %d)\n", dev.devpath, dev.devname, dev.major, dev.minor);
             else
                 continue;
 
@@ -85,29 +93,23 @@ static int64_t setup_block() {
     }
 
     // The requested partname does not exist
-    return -1;
+    return 0;
 }
 
 static void switch_root(const string &path) {
     LOGD("Switch root to %s\n", path.data());
     int root = xopen("/", O_RDONLY);
-    vector<string> mounts;
-    parse_mnt("/proc/mounts", [&](mntent *me) {
-        // Skip root and self
-        if (me->mnt_dir == "/"sv || me->mnt_dir == path)
-            return true;
-        // Do not include subtrees
-        for (const auto &m : mounts) {
-            if (strncmp(me->mnt_dir, m.data(), m.length()) == 0 && me->mnt_dir[m.length()] == '/')
-                return true;
+    for (set<string, greater<>> mounts; auto &info : parse_mount_info("self")) {
+        if (info.target == "/" || info.target == path)
+            continue;
+        if (auto last_mount = mounts.upper_bound(info.target);
+                last_mount != mounts.end() && info.target.starts_with(*last_mount + '/')) {
+            continue;
         }
-        mounts.emplace_back(me->mnt_dir);
-        return true;
-    });
-    for (auto &dir : mounts) {
-        auto new_path = path + dir;
+        mounts.emplace(info.target);
+        auto new_path = path + info.target;
         xmkdir(new_path.data(), 0755);
-        xmount(dir.data(), new_path.data(), nullptr, MS_MOVE, nullptr);
+        xmount(info.target.data(), new_path.data(), nullptr, MS_MOVE, nullptr);
     }
     chdir(path.data());
     xmount(path.data(), "/", nullptr, MS_MOVE, nullptr);
@@ -117,33 +119,49 @@ static void switch_root(const string &path) {
     frm_rf(root);
 }
 
-void MagiskInit::mount_rules_dir() {
-    dev_t rules_dev = 0;
-    parse_prop_file(".backup/.magisk", [&rules_dev](auto key, auto value) -> bool {
-        if (key == "RULESDEVICE") {
-            sscanf(value.data(), "%" PRIuPTR, &rules_dev);
-            return false;
+#define PREINITMNT MIRRDIR "/preinit"
+
+static void mount_preinit_dir(string path, string preinit_dev) {
+    if (preinit_dev.empty()) return;
+    strcpy(blk_info.partname, preinit_dev.data());
+    strcpy(blk_info.block_dev, PREINITDEV);
+    auto dev = setup_block();
+    if (dev == 0) {
+        LOGE("Cannot find preinit %s, abort!\n", preinit_dev.data());
+        return;
+    }
+    xmkdir(PREINITMNT, 0);
+    bool mounted = false;
+    // First, find if it is already mounted
+    for (auto &info : parse_mount_info("self")) {
+        if (info.root == "/" && info.device == dev) {
+            // Already mounted, just bind mount
+            xmount(info.target.data(), PREINITMNT, nullptr, MS_BIND, nullptr);
+            mounted = true;
+            break;
         }
-        return true;
-    });
-    if (!rules_dev) return;
-    xmknod(BLOCKDIR "/rules", S_IFBLK | 0600, rules_dev);
-    xmkdir(MIRRDIR "/rules", 0);
-    if (xmount(BLOCKDIR "/rules", MIRRDIR "/rules", "ext4", 0, nullptr) == 0) {
-        string custom_rules_dir = MIRRDIR "/rules";
-        if (access((custom_rules_dir + "/unencrypted").data(), F_OK) == 0) {
-            custom_rules_dir += "/unencrypted/magisk";
-        } else if (access((custom_rules_dir + "/adb").data(), F_OK) == 0) {
-            custom_rules_dir += "/adb/modules";
-        } else {
-            custom_rules_dir += "/magisk";
-        }
+    }
+
+    // Since we are mounting the block device directly, make sure to ONLY mount the partitions
+    // as read-only, or else the kernel might crash due to crappy drivers.
+    // After the device boots up, magiskd will properly bind mount the correct partition
+    // on to PREINITMIRR as writable. For more details, check bootstages.cpp
+    if (mounted || mount(PREINITDEV, PREINITMNT, "ext4", MS_RDONLY, nullptr) == 0 ||
+        mount(PREINITDEV, PREINITMNT, "f2fs", MS_RDONLY, nullptr) == 0) {
+        string preinit_dir = resolve_preinit_dir(PREINITMNT);
         // Create bind mount
-        xmkdirs(RULESDIR, 0);
-        xmkdirs(custom_rules_dir.data(), 0700);
-        LOGD("sepolicy.rules: %s -> %s\n", custom_rules_dir.data(), RULESDIR);
-        xmount(custom_rules_dir.data(), RULESDIR, nullptr, MS_BIND, nullptr);
-        xumount2(MIRRDIR "/rules", MNT_DETACH);
+        xmkdirs(PREINITMIRR, 0);
+        if (access(preinit_dir.data(), F_OK)) {
+            LOGW("empty preinit: %s\n", preinit_dir.data());
+        } else {
+            LOGD("preinit: %s\n", preinit_dir.data());
+            xmount(preinit_dir.data(), PREINITMIRR, nullptr, MS_BIND, nullptr);
+            mount_list.emplace_back(path += "/" PREINITMIRR);
+        }
+        xumount2(PREINITMNT, MNT_DETACH);
+    } else {
+        PLOGE("Failed to mount preinit %s\n", preinit_dev.data());
+        unlink(PREINITDEV);
     }
 }
 
@@ -159,18 +177,18 @@ bool LegacySARInit::mount_system_root() {
         // Try legacy SAR dm-verity
         strcpy(blk_info.partname, "vroot");
         auto dev = setup_block();
-        if (dev >= 0)
+        if (dev > 0)
             goto mount_root;
 
         // Try NVIDIA naming scheme
         strcpy(blk_info.partname, "APP");
         dev = setup_block();
-        if (dev >= 0)
+        if (dev > 0)
             goto mount_root;
 
         sprintf(blk_info.partname, "system%s", config->slot);
         dev = setup_block();
-        if (dev >= 0)
+        if (dev > 0)
             goto mount_root;
 
         // Poll forever if rootwait was given in cmdline
@@ -231,7 +249,7 @@ void BaseInit::exec_init() {
 void BaseInit::prepare_data() {
     LOGD("Setup data tmp\n");
     xmkdir("/data", 0755);
-    xmount("tmpfs", "/data", "tmpfs", 0, "mode=755");
+    xmount("magisk", "/data", "tmpfs", 0, "mode=755");
 
     cp_afc("/init", "/data/magiskinit");
     cp_afc("/.backup", "/data/.backup");
@@ -247,7 +265,7 @@ void MagiskInit::setup_tmp(const char *path) {
     xmkdir(BLOCKDIR, 0);
     xmkdir(WORKERDIR, 0);
 
-    mount_rules_dir();
+    mount_preinit_dir(path, preinit_dev);
 
     cp_afc(".backup/.magisk", INTLROOT "/config");
     rm_rf(".backup");

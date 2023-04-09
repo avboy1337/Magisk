@@ -15,8 +15,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.topjohnwu.magisk.BR
 
 class RvItemAdapter<T: RvItem>(
-    private val items: List<T>,
-    private val extraBindings: SparseArray<*>?
+    val items: List<T>,
+    val extraBindings: SparseArray<*>?
 ) : RecyclerView.Adapter<RvItemAdapter.ViewHolder>() {
 
     private var lifecycleOwner: LifecycleOwner? = null
@@ -53,7 +53,7 @@ class RvItemAdapter<T: RvItem>(
         holder.binding.lifecycleOwner = lifecycleOwner
         holder.binding.executePendingBindings()
         recyclerView?.let {
-            if (item is ViewAwareRvItem)
+            if (item is ViewAwareItem)
                 item.onBind(holder.binding, it)
         }
     }
@@ -113,6 +113,9 @@ inline fun bindExtra(body: (SparseArray<Any?>) -> Unit) = SparseArray<Any?>().al
 @BindingAdapter("items", "extraBindings", requireAll = false)
 fun <T: RvItem> RecyclerView.setAdapter(items: List<T>?, extraBindings: SparseArray<*>?) {
     if (items != null) {
-        adapter = RvItemAdapter(items, extraBindings)
+        val rva = (adapter as? RvItemAdapter<*>)
+        if (rva == null || rva.items !== items || rva.extraBindings !== extraBindings) {
+            adapter = RvItemAdapter(items, extraBindings)
+        }
     }
 }

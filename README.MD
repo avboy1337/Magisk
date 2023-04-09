@@ -6,7 +6,7 @@
 
 ## Introduction
 
-Magisk is a suite of open source software for customizing Android, supporting devices higher than Android 5.0.<br>
+Magisk is a suite of open source software for customizing Android, supporting devices higher than Android 6.0.<br>
 Some highlight features:
 
 - **MagiskSU**: Provide root access for applications
@@ -19,7 +19,7 @@ Some highlight features:
 [Github](https://github.com/topjohnwu/Magisk/) is the only source where you can get official Magisk information and downloads.
 
 [![](https://img.shields.io/badge/Magisk-v25.2-blue)](https://github.com/topjohnwu/Magisk/releases/tag/v25.2)
-[![](https://img.shields.io/badge/Magisk%20Beta-v25.2-blue)](https://github.com/topjohnwu/Magisk/releases/tag/v25.2)
+[![](https://img.shields.io/badge/Magisk%20Beta-v26.0-blue)](https://github.com/topjohnwu/Magisk/releases/tag/v26.0)
 [![](https://img.shields.io/badge/Magisk-Canary-red)](https://raw.githubusercontent.com/topjohnwu/magisk-files/canary/app-release.apk)
 [![](https://img.shields.io/badge/Magisk-Debug-red)](https://raw.githubusercontent.com/topjohnwu/magisk-files/canary/app-debug.apk)
 
@@ -27,7 +27,6 @@ Some highlight features:
 
 - [Installation Instruction](https://topjohnwu.github.io/Magisk/install.html)
 - [Magisk Documentation](https://topjohnwu.github.io/Magisk/)
-- [Magisk Troubleshoot Wiki](https://www.didgeridoohan.com/magisk/HomePage) (by [@Didgeridoohan](https://github.com/Didgeridoohan))
 
 ## Bug Reports
 

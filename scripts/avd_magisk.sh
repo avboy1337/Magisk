@@ -3,7 +3,7 @@
 #   AVD Magisk Setup
 #####################################################################
 #
-# Support API level: 21 - 33
+# Support API level: 23 - 33
 #
 # With an emulator booted and accessible via ADB, usage:
 # ./build.py emulator
@@ -20,7 +20,7 @@
 #####################################################################
 
 mount_sbin() {
-  mount -t tmpfs -o 'mode=0755' tmpfs /sbin
+  mount -t tmpfs -o 'mode=0755' magisk /sbin
   chcon u:object_r:rootfs:s0 /sbin
 }
 
@@ -67,15 +67,9 @@ if [ -d /dev/avd-magisk ]; then
   rm -rf /dev/avd-magisk 2>/dev/null
 fi
 
-# SELinux stuffs
-if [ -d /sys/fs/selinux ]; then
-  if [ -f /vendor/etc/selinux/precompiled_sepolicy ]; then
-    ./magiskpolicy --load /vendor/etc/selinux/precompiled_sepolicy --live --magisk 2>&1
-  elif [ -f /sepolicy ]; then
-    ./magiskpolicy --load /sepolicy --live --magisk 2>&1
-  else
-    ./magiskpolicy --live --magisk 2>&1
-  fi
+# Mount /cache if not already mounted
+if ! grep -q ' /cache ' /proc/mounts; then
+  mount -t tmpfs -o 'mode=0755' tmpfs /cache
 fi
 
 MAGISKTMP=/sbin
@@ -114,7 +108,7 @@ else
   # Android Q+ without sbin
   MAGISKTMP=/dev/avd-magisk
   mkdir /dev/avd-magisk
-  mount -t tmpfs -o 'mode=0755' tmpfs /dev/avd-magisk
+  mount -t tmpfs -o 'mode=0755' magisk /dev/avd-magisk
 fi
 
 # Magisk stuff
@@ -145,11 +139,30 @@ ln -s ./magiskpolicy $MAGISKTMP/supolicy
 
 mkdir -p $MAGISKTMP/.magisk/mirror
 mkdir $MAGISKTMP/.magisk/block
+mkdir $MAGISKTMP/.magisk/worker
 touch $MAGISKTMP/.magisk/config
+
+export MAGISKTMP
+MAKEDEV=1 $MAGISKTMP/magisk --preinit-device 2>&1
+
+RULESCMD=""
+for r in $MAGISKTMP/.magisk/preinit/*/sepolicy.rule; do
+  [ -f "$r" ] || continue
+  RULESCMD="$RULESCMD --apply $r"
+done
+
+# SELinux stuffs
+if [ -d /sys/fs/selinux ]; then
+  if [ -f /vendor/etc/selinux/precompiled_sepolicy ]; then
+    ./magiskpolicy --load /vendor/etc/selinux/precompiled_sepolicy --live --magisk $RULESCMD 2>&1
+  elif [ -f /sepolicy ]; then
+    ./magiskpolicy --load /sepolicy --live --magisk $RULESCMD 2>&1
+  else
+    ./magiskpolicy --live --magisk $RULESCMD 2>&1
+  fi
+fi
 
 # Boot up
 $MAGISKTMP/magisk --post-fs-data
-while [ ! -f /dev/.magisk_unblock ]; do sleep 1; done
-rm /dev/.magisk_unblock
 start
 $MAGISKTMP/magisk --service

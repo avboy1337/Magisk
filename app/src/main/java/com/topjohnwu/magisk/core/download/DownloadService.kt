@@ -17,19 +17,21 @@ import com.topjohnwu.magisk.core.Info
 import com.topjohnwu.magisk.core.base.BaseActivity
 import com.topjohnwu.magisk.core.intent
 import com.topjohnwu.magisk.core.isRunningAsStub
+import com.topjohnwu.magisk.core.ktx.*
 import com.topjohnwu.magisk.core.tasks.HideAPK
 import com.topjohnwu.magisk.core.utils.MediaStoreUtils
 import com.topjohnwu.magisk.core.utils.MediaStoreUtils.outputStream
-import com.topjohnwu.magisk.ktx.*
 import com.topjohnwu.magisk.utils.APKInstall
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.Properties
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
@@ -76,7 +78,7 @@ class DownloadService : NotificationService() {
 
     private fun handleApp(stream: InputStream, subject: Subject.App) {
         fun writeTee(output: OutputStream) {
-            val uri =  MediaStoreUtils.getFile("${subject.title}.apk").uri
+            val uri = MediaStoreUtils.getFile("${subject.title}.apk").uri
             val external = uri.outputStream()
             stream.copyAndClose(TeeOutputStream(external, output))
         }
@@ -87,7 +89,11 @@ class DownloadService : NotificationService() {
                 // Download full APK to stub update path
                 writeTee(updateApk.outputStream())
 
-                if (Info.stub!!.version < subject.stub.versionCode) {
+                val zf = ZipFile(updateApk)
+                val prop = Properties()
+                prop.load(ByteArrayInputStream(zf.comment.toByteArray()))
+                val stubVersion = prop.getProperty("stubVersion").toIntOrNull() ?: -1
+                if (Info.stub!!.version < stubVersion) {
                     // Also upgrade stub
                     notifyUpdate(subject.notifyId) {
                         it.setProgress(0, 0, true)
@@ -97,12 +103,12 @@ class DownloadService : NotificationService() {
 
                     // Extract stub
                     val apk = subject.file.toFile()
-                    val zf = ZipFile(updateApk)
                     zf.getInputStream(zf.getEntry("assets/stub.apk")).writeTo(apk)
+                    zf.close()
 
                     // Patch and install
-                    subject.intent = HideAPK.upgrade(this, apk) ?:
-                        throw IOException("HideAPK patch error")
+                    subject.intent = HideAPK.upgrade(this, apk)
+                        ?: throw IOException("HideAPK patch error")
                     apk.delete()
                 } else {
                     ActivityTracker.foreground?.let {

@@ -11,14 +11,14 @@ import com.topjohnwu.magisk.StubApk
 import com.topjohnwu.magisk.core.Config
 import com.topjohnwu.magisk.core.Const
 import com.topjohnwu.magisk.core.Provider
+import com.topjohnwu.magisk.core.ktx.await
+import com.topjohnwu.magisk.core.ktx.toast
+import com.topjohnwu.magisk.core.ktx.writeTo
 import com.topjohnwu.magisk.core.utils.AXML
 import com.topjohnwu.magisk.core.utils.Keygen
-import com.topjohnwu.magisk.ktx.await
-import com.topjohnwu.magisk.ktx.writeTo
 import com.topjohnwu.magisk.signing.JarMap
 import com.topjohnwu.magisk.signing.SignApk
 import com.topjohnwu.magisk.utils.APKInstall
-import com.topjohnwu.magisk.utils.Utils
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Runnable
@@ -160,7 +160,6 @@ object HideAPK {
 
     private fun launchApp(activity: Activity, pkg: String) {
         val intent = activity.packageManager.getLaunchIntentForPackage(pkg) ?: return
-        Config.suManager = if (pkg == APPLICATION_ID) "" else pkg
         val self = activity.packageName
         val flag = Intent.FLAG_GRANT_READ_URI_PERMISSION
         activity.grantUriPermission(pkg, Provider.preferencesUri(self), flag)
@@ -191,6 +190,7 @@ object HideAPK {
             launchApp(activity, pkg)
         }
 
+        Config.suManager = pkg
         val cmd = "adb_pm_install $repack $pkg"
         if (Shell.cmd(cmd).exec().isSuccess) return true
 
@@ -214,7 +214,7 @@ object HideAPK {
         }
         val onFailure = Runnable {
             dialog.dismiss()
-            Utils.toast(R.string.failure, Toast.LENGTH_LONG)
+            activity.toast(R.string.failure, Toast.LENGTH_LONG)
         }
         val success = withContext(Dispatchers.IO) {
             patchAndHide(activity, label, onFailure)
@@ -232,13 +232,14 @@ object HideAPK {
         }
         val onFailure = Runnable {
             dialog.dismiss()
-            Utils.toast(R.string.failure, Toast.LENGTH_LONG)
+            activity.toast(R.string.failure, Toast.LENGTH_LONG)
         }
         val apk = StubApk.current(activity)
         val session = APKInstall.startSession(activity, APPLICATION_ID, onFailure) {
             launchApp(activity, APPLICATION_ID)
             dialog.dismiss()
         }
+        Config.suManager = ""
         val cmd = "adb_pm_install $apk $APPLICATION_ID"
         if (Shell.cmd(cmd).await().isSuccess) return
         val success = withContext(Dispatchers.IO) {

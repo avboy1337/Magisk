@@ -9,11 +9,10 @@ import android.os.Parcelable
 import androidx.core.net.toUri
 import com.topjohnwu.magisk.core.Info
 import com.topjohnwu.magisk.core.di.AppContext
+import com.topjohnwu.magisk.core.ktx.cachedFile
 import com.topjohnwu.magisk.core.model.MagiskJson
-import com.topjohnwu.magisk.core.model.StubJson
 import com.topjohnwu.magisk.core.model.module.OnlineModule
 import com.topjohnwu.magisk.core.utils.MediaStoreUtils
-import com.topjohnwu.magisk.ktx.cachedFile
 import com.topjohnwu.magisk.ui.flash.FlashFragment
 import com.topjohnwu.magisk.view.Notifications
 import kotlinx.parcelize.IgnoredOnParcel
@@ -59,7 +58,6 @@ sealed class Subject : Parcelable {
     @Parcelize
     class App(
         private val json: MagiskJson = Info.remote.magisk,
-        val stub: StubJson = Info.remote.stub,
         override val notifyId: Int = Notifications.nextId()
     ) : Subject() {
         override val title: String get() = "Magisk-${json.version}(${json.versionCode})"
