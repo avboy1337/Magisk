@@ -113,6 +113,8 @@
     <string name="suspend_text_zygisk">Modul suspendat deoarece %1$s nu este activat</string>
     <string name="zygisk_module_unloaded">Modulul Zygisk nu a fost încărcat din cauza incompatibilității</string>
     <string name="module_empty">Niciun modul instalat</string>
+    <string name="confirm_install">Instalezi modulul %1$s?</string>
+    <string name="confirm_install_title">Confirmare pentru instalare</string>
 
     <!--Settings-->
     <string name="settings_dark_mode_title">Mod pentru temă</string>
@@ -165,9 +167,6 @@
     <string name="settings_su_reauth_summary">Cere din nou permisiunile de superutilizator după actualizarea aplicațiilor</string>
     <string name="settings_su_tapjack_title">Protecție față de tapjacking</string>
     <string name="settings_su_tapjack_summary">Caseta de dialog pentru solicitarea permisiunilor de superutilizator nu va răspunde la input cât timp este ascunsă de orice altă fereastră sau suprapunere</string>
-    <string name="settings_su_biometric_title">Autentificare biometrică</string>
-    <string name="settings_su_biometric_summary">Folosește autentificarea biometrică pentru a permite cereri de superutilizator</string>
-    <string name="no_biometric">Dispozitiv nesuportat sau nu sunt activate setări biometrice</string>
     <string name="settings_customization">Personalizare</string>
     <string name="setting_add_shortcut_summary">Adaugă o comandă rapidă frumoasă în ecranul de pornire în cazul în care numele și pictograma sunt dificil de recunoscut după ascunderea aplicației</string>
     <string name="settings_doh_title">DNS prin HTTPS</string>
@@ -219,6 +218,7 @@
     <string name="setup_fail">Configurare eșuată</string>
     <string name="env_fix_title">Necesită configurare suplimentară</string>
     <string name="env_fix_msg">Dispozitivul are nevoie de configurare suplimentară pentru ca Magisk să funcționeze corect. Vrei să continui și să repornești?</string>
+    <string name="env_full_fix_msg">Dispozitivul are nevoie de rescrierea în memoria flash a Magisk pentru a funcționa corect. Te rugăm să reinstalezi Magisk în cadrul aplicației, modul de recuperare nu poate obține informații corecte despre dispozitiv.</string>
     <string name="setup_msg">Rulează configurarea mediului…</string>
     <string name="authenticate">Autentificare</string>
     <string name="unsupport_magisk_title">Versiune Magisk nesuportată</string>
@@ -230,6 +230,7 @@
     <string name="unsupport_nonroot_stub_msg">Aplicația Magisk ascunsă nu poate continua să funcționeze deoarece rootul a fost pierdut. Te rugăm să restaurezi APK-ul original.</string>
     <string name="unsupport_nonroot_stub_title">@string/settings_restore_app_title</string>
     <string name="external_rw_permission_denied">Acordă permisiunea de stocare pentru a activa această funcționalitate</string>
+    <string name="post_notifications_denied">Acordă permisiunea de notificări pentru a activa această funcționalitate</string>
     <string name="install_unknown_denied">Permite „instalarea de aplicații necunoscute” pentru a activa această funcționalitate</string>
     <string name="add_shortcut_title">Adaugă comandă rapidă pe ecranul de pornire</string>
     <string name="add_shortcut_msg">După ascunderea acestei aplicații, numele și pictograma acesteia ar putea deveni dificil de recunoscut. Vrei să adaugi o comandă rapidă frumoasă pe ecranul de pornire?</string>

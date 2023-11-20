@@ -13,6 +13,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.DataOutputStream
+import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -22,7 +23,7 @@ class SuRequestHandler(
     private val policyDB: PolicyDao
 ) {
 
-    private lateinit var output: DataOutputStream
+    private lateinit var output: File
     private lateinit var policy: SuPolicy
     lateinit var pkgInfo: PackageInfo
         private set
@@ -52,37 +53,32 @@ class SuRequestHandler(
         return true
     }
 
-    private fun close() {
-        if (::output.isInitialized)
-            runCatching { output.close() }
-    }
-
-    private suspend fun init(intent: Intent) = withContext(Dispatchers.IO) {
-        try {
-            val fifo = intent.getStringExtra("fifo") ?: throw IOException("fifo == null")
-            output = DataOutputStream(FileOutputStream(fifo))
-            val uid = intent.getIntExtra("uid", -1)
-            if (uid <= 0) {
-                throw IOException("uid == $uid")
-            }
-            policy = SuPolicy(uid)
-            val pid = intent.getIntExtra("pid", -1)
-            try {
-                pkgInfo = pm.getPackageInfo(uid, pid) ?: PackageInfo().apply {
-                    val name = pm.getNameForUid(uid) ?: throw PackageManager.NameNotFoundException()
-                    // We only fill in sharedUserId and leave other fields uninitialized
-                    sharedUserId = name.split(":")[0]
-                }
-                return@withContext true
-            } catch (e: PackageManager.NameNotFoundException) {
-                respond(SuPolicy.DENY, -1)
-                return@withContext false
-            }
-        } catch (e: IOException) {
-            Timber.e(e)
-            close()
-            return@withContext false
+    private suspend fun init(intent: Intent): Boolean {
+        val uid = intent.getIntExtra("uid", -1)
+        val pid = intent.getIntExtra("pid", -1)
+        val fifo = intent.getStringExtra("fifo")
+        if (uid <= 0 || pid <= 0 || fifo == null) {
+            Timber.e("Unexpected extras: uid=[${uid}], pid=[${pid}], fifo=[${fifo}]")
+            return false
         }
+        output = File(fifo)
+        policy = SuPolicy(uid)
+        try {
+            pkgInfo = pm.getPackageInfo(uid, pid) ?: PackageInfo().apply {
+                val name = pm.getNameForUid(uid) ?: throw PackageManager.NameNotFoundException()
+                // We only fill in sharedUserId and leave other fields uninitialized
+                sharedUserId = name.split(":")[0]
+            }
+        } catch (e: PackageManager.NameNotFoundException) {
+            Timber.e(e)
+            respond(SuPolicy.DENY, -1)
+            return false
+        }
+        if (!output.canWrite()) {
+            Timber.e("Cannot write to $output")
+            return false
+        }
+        return true
     }
 
     suspend fun respond(action: Int, time: Int) {
@@ -97,14 +93,15 @@ class SuRequestHandler(
 
         withContext(Dispatchers.IO) {
             try {
-                output.writeInt(policy.policy)
-                output.flush()
+                DataOutputStream(FileOutputStream(output)).use {
+                    it.writeInt(policy.policy)
+                    it.flush()
+                }
             } catch (e: IOException) {
                 Timber.e(e)
-            } finally {
-                close()
-                if (until >= 0)
-                    policyDB.update(policy)
+            }
+            if (until >= 0) {
+                policyDB.update(policy)
             }
         }
     }

@@ -2,10 +2,10 @@
 #include <dlfcn.h>
 #include <sys/stat.h>
 
-#include <magisk.hpp>
-#include <db.hpp>
-#include <socket.hpp>
+#include <consts.hpp>
 #include <base.hpp>
+#include <db.hpp>
+#include <core.hpp>
 
 #define DB_VERSION 12
 
@@ -116,7 +116,7 @@ db_settings::db_settings() {
     data[SU_MULTIUSER_MODE] = MULTIUSER_MODE_OWNER_ONLY;
     data[SU_MNT_NS] = NAMESPACE_MODE_REQUESTER;
     data[DENYLIST_CONFIG] = false;
-    data[ZYGISK_CONFIG] = false;
+    data[ZYGISK_CONFIG] = rust::get_magiskd().is_emulator();
 }
 
 int db_settings::get_idx(string_view key) const {

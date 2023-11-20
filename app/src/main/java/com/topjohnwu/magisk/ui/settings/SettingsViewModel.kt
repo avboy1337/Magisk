@@ -18,7 +18,7 @@ import com.topjohnwu.magisk.core.ktx.toast
 import com.topjohnwu.magisk.core.tasks.HideAPK
 import com.topjohnwu.magisk.databinding.bindExtra
 import com.topjohnwu.magisk.events.AddHomeIconEvent
-import com.topjohnwu.magisk.events.BiometricEvent
+import com.topjohnwu.magisk.events.AuthEvent
 import com.topjohnwu.magisk.events.SnackbarEvent
 import com.topjohnwu.superuser.Shell
 import kotlinx.coroutines.launch
@@ -72,7 +72,7 @@ class SettingsViewModel : BaseViewModel(), BaseSettingsItem.Handler {
         if (Info.showSuperUser) {
             list.addAll(listOf(
                 Superuser,
-                Tapjack, Biometrics, AccessMode, MultiuserMode, MountNamespaceMode,
+                Tapjack, Authentication, AccessMode, MultiuserMode, MountNamespaceMode,
                 AutomaticResponse, RequestTimeout, SUNotification
             ))
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -92,7 +92,7 @@ class SettingsViewModel : BaseViewModel(), BaseSettingsItem.Handler {
         when (item) {
             DownloadPath -> withExternalRW(andThen)
             UpdateChecker -> withPostNotificationPermission(andThen)
-            Biometrics -> authenticate(andThen)
+            Authentication -> AuthEvent(andThen).publish()
             Theme -> SettingsFragmentDirections.actionSettingsFragmentToThemeFragment().navigate()
             DenyListConfig -> SettingsFragmentDirections.actionSettingsFragmentToDenyFragment().navigate()
             SystemlessHosts -> createHosts()
@@ -117,13 +117,6 @@ class SettingsViewModel : BaseViewModel(), BaseSettingsItem.Handler {
         if (UpdateChannelUrl.isEnabled && UpdateChannelUrl.value.isBlank()) {
             UpdateChannelUrl.onPressed(view, this)
         }
-    }
-
-    private fun authenticate(callback: () -> Unit) {
-        BiometricEvent {
-            // allow the change on success
-            onSuccess { callback() }
-        }.publish()
     }
 
     private fun createHosts() {

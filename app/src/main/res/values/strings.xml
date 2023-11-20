@@ -46,7 +46,7 @@
     <string name="install_inactive_slot_msg">Your device will be FORCED to boot to the current inactive slot after a reboot!\nOnly use this option after OTA is done.\nContinue?</string>
     <string name="setup_title">Additional Setup</string>
     <string name="select_patch_file">Select and Patch a File</string>
-    <string name="patch_file_msg">Select a raw image (*.img) or an ODIN tarfile (*.tar)</string>
+    <string name="patch_file_msg">Select a raw image (*.img) or an ODIN tarfile (*.tar) or a payload.bin (*.bin)</string>
     <string name="reboot_delay_toast">Rebooting in 5 seconds…</string>
     <string name="flash_screen_title">Installation</string>
 
@@ -88,6 +88,9 @@
     <string name="logs_cleared">Log successfully cleared</string>
     <string name="pid">PID: %1$d</string>
     <string name="target_uid">Target UID: %1$d</string>
+    <string name="target_pid">Mount ns target PID: %s</string>
+    <string name="selinux_context">SELinux context: %s</string>
+    <string name="supp_group">Supplementary group: %s</string>
 
     <!--SafetyNet-->
 
@@ -167,9 +170,9 @@
     <string name="settings_su_reauth_summary">Ask for Superuser permissions again after upgrading apps</string>
     <string name="settings_su_tapjack_title">Tapjacking Protection</string>
     <string name="settings_su_tapjack_summary">The Superuser prompt dialog will not respond to input while obscured by any other window or overlay</string>
-    <string name="settings_su_biometric_title">Biometric Authentication</string>
-    <string name="settings_su_biometric_summary">Use biometric authentication to allow Superuser requests</string>
-    <string name="no_biometric">Unsupported device or no biometric settings are enabled</string>
+    <string name="settings_su_auth_title">User Authentication</string>
+    <string name="settings_su_auth_summary">Ask for user authentication during Superuser requests</string>
+    <string name="settings_su_auth_insecure">No authentication method is configured on the device</string>
     <string name="settings_customization">Customization</string>
     <string name="setting_add_shortcut_summary">Add a pretty shortcut to the home screen in case the name and icon are difficult to recognize after hiding the app</string>
     <string name="settings_doh_title">DNS over HTTPS</string>

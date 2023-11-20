@@ -10,16 +10,15 @@
 
 #include "init.hpp"
 
-#include <init-rs.cpp>
-
 using namespace std;
 
-bool unxz(int fd, const uint8_t *buf, size_t size) {
+bool unxz(out_stream &strm, rust::Slice<const uint8_t> bytes) {
     uint8_t out[8192];
     xz_crc32_init();
+    size_t size = bytes.size();
     struct xz_dec *dec = xz_dec_init(XZ_DYNALLOC, 1 << 26);
     struct xz_buf b = {
-        .in = buf,
+        .in = bytes.data(),
         .in_pos = 0,
         .in_size = size,
         .out = out,
@@ -31,20 +30,11 @@ bool unxz(int fd, const uint8_t *buf, size_t size) {
         ret = xz_dec_run(dec, &b);
         if (ret != XZ_OK && ret != XZ_STREAM_END)
             return false;
-        write(fd, out, b.out_pos);
+        strm.write(out, b.out_pos);
         b.out_pos = 0;
     } while (b.in_pos != size);
     return true;
-}
 
-static int dump_bin(const uint8_t *buf, size_t sz, const char *path, mode_t mode) {
-    int fd = xopen(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, mode);
-    if (fd < 0)
-        return 1;
-    if (!unxz(fd, buf, sz))
-        return 1;
-    close(fd);
-    return 0;
 }
 
 void restore_ramdisk_init() {
@@ -59,10 +49,6 @@ void restore_ramdisk_init() {
         // which is guaranteed to be placed at /system/bin/init.
         xsymlink(INIT_PATH, "/init");
     }
-}
-
-int dump_preload(const char *path, mode_t mode) {
-    return dump_bin(init_ld_xz, sizeof(init_ld_xz), path, mode);
 }
 
 class RecoveryInit : public BaseInit {
@@ -90,6 +76,7 @@ int main(int argc, char *argv[]) {
     BootConfig config{};
 
     if (argc > 1 && argv[1] == "selinux_setup"sv) {
+        rust::setup_klog();
         init = new SecondStageInit(argv);
     } else {
         // This will also mount /sys and /proc

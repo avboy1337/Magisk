@@ -1,13 +1,10 @@
 #pragma once
 
+#include <unistd.h>
 #include <dirent.h>
 #include <stdio.h>
 #include <poll.h>
 #include <fcntl.h>
-
-#include <base-rs.hpp>
-
-using rust::xpipe2;
 
 extern "C" {
 

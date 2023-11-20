@@ -6,12 +6,18 @@
 #include <string_view>
 #include <bitset>
 #include <random>
+#include <cxx.h>
 
-#include <base-rs.hpp>
+#include "xwrap.hpp"
 
 #define DISALLOW_COPY_AND_MOVE(clazz) \
-clazz(const clazz &) = delete; \
+clazz(const clazz&) = delete;        \
 clazz(clazz &&) = delete;
+
+#define ALLOW_MOVE_ONLY(clazz) \
+clazz(const clazz&) = delete;  \
+clazz(clazz &&o) { swap(o); }  \
+clazz& operator=(clazz &&o) { swap(o); return *this; }
 
 class mutex_guard {
     DISALLOW_COPY_AND_MOVE(mutex_guard)
@@ -121,16 +127,122 @@ struct StringCmp {
     bool operator()(std::string_view a, std::string_view b) const { return a < b; }
 };
 
-template<typename T>
-rust::Slice<uint8_t> byte_slice(T *buf, size_t sz) {
-    return rust::Slice(reinterpret_cast<uint8_t *>(buf), sz);
-}
+struct heap_data;
+
+// Interchangeable as `&[u8]` in Rust
+struct byte_view {
+    byte_view() : _buf(nullptr), _sz(0) {}
+    byte_view(const void *buf, size_t sz) : _buf((uint8_t *) buf), _sz(sz) {}
+
+    // byte_view, or any of its subclass, can be copied as byte_view
+    byte_view(const byte_view &o) : _buf(o._buf), _sz(o._sz) {}
+
+    // Bridging to Rust slice
+    byte_view(rust::Slice<const uint8_t> o) : byte_view(o.data(), o.size()) {}
+    operator rust::Slice<const uint8_t>() const { return rust::Slice<const uint8_t>(_buf, _sz); }
+
+    // String as bytes
+    byte_view(const char *s, bool with_nul = true)
+    : byte_view(std::string_view(s), with_nul, false) {}
+    byte_view(const std::string &s, bool with_nul = true)
+    : byte_view(std::string_view(s), with_nul, false) {}
+    byte_view(std::string_view s, bool with_nul = true)
+    : byte_view(s, with_nul, true /* string_view is not guaranteed to null terminate */ ) {}
+
+    // Vector as bytes
+    byte_view(const std::vector<uint8_t> &v) : byte_view(v.data(), v.size()) {}
+
+    const uint8_t *buf() const { return _buf; }
+    size_t sz() const { return _sz; }
+
+    bool contains(byte_view pattern) const;
+    bool equals(byte_view o) const;
+    heap_data clone() const;
+
+protected:
+    uint8_t *_buf;
+    size_t _sz;
+
+private:
+    byte_view(std::string_view s, bool with_nul, bool check_nul)
+    : byte_view(static_cast<const void *>(s.data()), s.length()) {
+        if (with_nul) {
+            if (check_nul && s[s.length()] != '\0')
+                return;
+            ++_sz;
+        }
+    }
+};
+
+// Interchangeable as `&mut [u8]` in Rust
+struct byte_data : public byte_view {
+    byte_data() = default;
+    byte_data(void *buf, size_t sz) : byte_view(buf, sz) {}
+
+    // byte_data, or any of its subclass, can be copied as byte_data
+    byte_data(const byte_data &o) : byte_data(o._buf, o._sz) {}
+
+    // Transparent conversion from common C++ types to mutable byte references
+    byte_data(std::string &s, bool with_nul = true)
+    : byte_data(s.data(), with_nul ? s.length() + 1 : s.length()) {}
+    byte_data(std::vector<uint8_t> &v) : byte_data(v.data(), v.size()) {}
+
+    // Bridging to Rust slice
+    byte_data(rust::Slice<uint8_t> o) : byte_data(o.data(), o.size()) {}
+    operator rust::Slice<uint8_t>() { return rust::Slice<uint8_t>(_buf, _sz); }
+
+    using byte_view::buf;
+    uint8_t *buf() { return _buf; }
+
+    void swap(byte_data &o);
+    rust::Vec<size_t> patch(byte_view from, byte_view to);
+};
+
+template<size_t N>
+struct byte_array : public byte_data {
+    byte_array() : byte_data(arr, N), arr{0} {}
+private:
+    uint8_t arr[N];
+};
+
+class byte_channel;
+
+struct heap_data : public byte_data {
+    ALLOW_MOVE_ONLY(heap_data)
+
+    heap_data() = default;
+    explicit heap_data(size_t sz) : byte_data(calloc(sz, 1), sz) {}
+    ~heap_data() { free(_buf); }
+
+    // byte_channel needs to reallocate the internal buffer
+    friend byte_channel;
+};
+
+struct owned_fd {
+    ALLOW_MOVE_ONLY(owned_fd)
+
+    owned_fd() : fd(-1) {}
+    owned_fd(int fd) : fd(fd) {}
+    ~owned_fd() { close(fd); fd = -1; }
+
+    operator int() { return fd; }
+    int release() { int f = fd; fd = -1; return f; }
+    void swap(owned_fd &owned) { std::swap(fd, owned.fd); }
+
+private:
+    int fd;
+};
+
+rust::Vec<size_t> mut_u8_patch(
+        rust::Slice<uint8_t> buf,
+        rust::Slice<const uint8_t> from,
+        rust::Slice<const uint8_t> to);
 
 uint64_t parse_uint64_hex(std::string_view s);
 int parse_int(std::string_view s);
 
 using thread_entry = void *(*)(void *);
-int new_daemon_thread(thread_entry entry, void *arg = nullptr);
+extern "C" int new_daemon_thread(thread_entry entry, void *arg = nullptr);
 
 static inline bool str_contains(std::string_view s, std::string_view ss) {
     return s.find(ss) != std::string::npos;
@@ -160,16 +272,14 @@ void init_argv0(int argc, char **argv);
 void set_nice_name(const char *name);
 uint32_t binary_gcd(uint32_t u, uint32_t v);
 int switch_mnt_ns(int pid);
-std::mt19937_64 &get_rand(const void *seed_buf = nullptr);
-int gen_rand_str(char *buf, int len, bool varlen = true);
 std::string &replace_all(std::string &str, std::string_view from, std::string_view to);
 std::vector<std::string> split(std::string_view s, std::string_view delims);
 std::vector<std::string_view> split_view(std::string_view, std::string_view delims);
 
 // Similar to vsnprintf, but the return value is the written number of bytes
-int vssprintf(char *dest, size_t size, const char *fmt, va_list ap);
+__printflike(3, 0) int vssprintf(char *dest, size_t size, const char *fmt, va_list ap);
 // Similar to snprintf, but the return value is the written number of bytes
-int ssprintf(char *dest, size_t size, const char *fmt, ...);
+__printflike(3, 4) int ssprintf(char *dest, size_t size, const char *fmt, ...);
 // This is not actually the strscpy from the Linux kernel.
 // Silently truncates, and returns the number of bytes written.
 extern "C" size_t strscpy(char *dest, const char *src, size_t size);
@@ -214,4 +324,10 @@ void exec_command_async(Args &&...args) {
         .argv = argv,
     };
     exec_command(exec);
+}
+
+template <typename T>
+constexpr auto operator+(T e) noexcept ->
+    std::enable_if_t<std::is_enum<T>::value, std::underlying_type_t<T>> {
+    return static_cast<std::underlying_type_t<T>>(e);
 }

@@ -1,11 +1,5 @@
 LOCAL_PATH := $(call my-dir)
 
-# Header only library
-include $(CLEAR_VARS)
-LOCAL_MODULE:= libphmap
-LOCAL_EXPORT_C_INCLUDES := $(LOCAL_PATH)/parallel-hashmap
-include $(BUILD_STATIC_LIBRARY)
-
 # libxz.a
 include $(CLEAR_VARS)
 LOCAL_MODULE:= libxz
@@ -15,34 +9,6 @@ LOCAL_SRC_FILES := \
     xz-embedded/xz_crc32.c \
     xz-embedded/xz_dec_lzma2.c \
     xz-embedded/xz_dec_stream.c
-include $(BUILD_STATIC_LIBRARY)
-
-# libnanopb.a
-include $(CLEAR_VARS)
-LOCAL_MODULE:= libnanopb
-LOCAL_C_INCLUDES := $(LOCAL_PATH)/nanopb
-LOCAL_EXPORT_C_INCLUDES := $(LOCAL_C_INCLUDES)
-LOCAL_SRC_FILES := \
-    nanopb/pb_common.c \
-    nanopb/pb_decode.c \
-    nanopb/pb_encode.c
-include $(BUILD_STATIC_LIBRARY)
-
-# libfdt.a
-include $(CLEAR_VARS)
-LOCAL_MODULE:= libfdt
-LOCAL_C_INCLUDES := $(LOCAL_PATH)/dtc/libfdt
-LOCAL_EXPORT_C_INCLUDES := $(LOCAL_C_INCLUDES)
-LOCAL_SRC_FILES := \
-    dtc/libfdt/fdt.c \
-    dtc/libfdt/fdt_addresses.c \
-    dtc/libfdt/fdt_empty_tree.c \
-    dtc/libfdt/fdt_overlay.c \
-    dtc/libfdt/fdt_ro.c \
-    dtc/libfdt/fdt_rw.c \
-    dtc/libfdt/fdt_strerror.c \
-    dtc/libfdt/fdt_sw.c \
-    dtc/libfdt/fdt_wip.c
 include $(BUILD_STATIC_LIBRARY)
 
 # liblz4.a
@@ -423,6 +389,5 @@ LOCAL_SRC_FILES := \
 include $(BUILD_STATIC_LIBRARY)
 
 CWD := $(LOCAL_PATH)
-include $(CWD)/systemproperties/Android.mk
-include $(CWD)/mincrypt/Android.mk
+include $(CWD)/system_properties/Android.mk
 include $(CWD)/libcxx/Android.mk

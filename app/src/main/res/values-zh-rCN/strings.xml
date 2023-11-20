@@ -46,7 +46,7 @@
     <string name="install_inactive_slot_msg">将在重启后强制切换到另一个槽位！注意只能在 OTA 更新完成后的重启之前使用。</string>
     <string name="setup_title">修复安装</string>
     <string name="select_patch_file">选择并修补一个文件</string>
-    <string name="patch_file_msg">选择一个原始映像文件（*.img）或一个 Odin 包（*.tar）</string>
+    <string name="patch_file_msg">选择一个原始映像文件（*.img）、Odin 包（*.tar）或 payload.bin（*.bin）</string>
     <string name="reboot_delay_toast">设备将在 5 秒后重启</string>
     <string name="flash_screen_title">安装</string>
 
@@ -88,6 +88,9 @@
     <string name="logs_cleared">日志已清空</string>
     <string name="pid">PID: %1$d</string>
     <string name="target_uid">目标 UID: %1$d</string>
+    <string name="target_pid">挂载命名空间目标 PID: %s</string>
+    <string name="selinux_context">SELinux 上下文: %s</string>
+    <string name="supp_group">补充组: %s</string>
 
     <!--SafetyNet-->
 
@@ -167,9 +170,9 @@
     <string name="settings_su_reauth_summary">应用更新后重新认证超级用户权限</string>
     <string name="settings_su_tapjack_title">点按劫持保护</string>
     <string name="settings_su_tapjack_summary">存在屏幕叠加层时，超级用户请求弹窗不响应允许操作</string>
-    <string name="settings_su_biometric_title">生物识别验证</string>
-    <string name="settings_su_biometric_summary">使用生物识别来允许超级用户请求</string>
-    <string name="no_biometric">设备不支持或未配置生物识别功能</string>
+    <string name="settings_su_auth_title">身份验证</string>
+    <string name="settings_su_auth_summary">对超级用户请求验证身份</string>
+    <string name="settings_su_auth_insecure">设备未配置验证方式</string>
     <string name="settings_customization">个性化</string>
     <string name="setting_add_shortcut_summary">在隐藏后难以识别名称和图标的情况下，添加快捷方式到桌面</string>
     <string name="settings_doh_title">安全 DNS（DoH）</string>

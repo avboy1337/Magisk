@@ -1,10 +1,31 @@
 #pragma once
 
 #include <stdlib.h>
-#include <selinux.hpp>
 #include <string>
 
-#define ALL nullptr
+// sepolicy paths
+#define PLAT_POLICY_DIR     "/system/etc/selinux/"
+#define VEND_POLICY_DIR     "/vendor/etc/selinux/"
+#define PROD_POLICY_DIR     "/product/etc/selinux/"
+#define ODM_POLICY_DIR      "/odm/etc/selinux/"
+#define SYSEXT_POLICY_DIR   "/system_ext/etc/selinux/"
+#define SPLIT_PLAT_CIL      PLAT_POLICY_DIR "plat_sepolicy.cil"
+
+// selinuxfs paths
+#define SELINUX_MNT         "/sys/fs/selinux"
+#define SELINUX_ENFORCE     SELINUX_MNT "/enforce"
+#define SELINUX_POLICY      SELINUX_MNT "/policy"
+#define SELINUX_LOAD        SELINUX_MNT "/load"
+#define SELINUX_VERSION     SELINUX_MNT "/policyvers"
+
+using token_list = std::vector<const char *>;
+using argument = std::pair<token_list, bool>;
+using argument_list = std::vector<argument>;
+
+const argument &all_xperm();
+
+#define ALL       nullptr
+#define ALL_XPERM all_xperm()
 
 struct sepolicy {
     using c_str = const char *;
@@ -17,9 +38,11 @@ struct sepolicy {
 
     // External APIs
     bool to_file(c_str file);
-    void parse_statement(c_str stmt);
+    void parse_statement(c_str stmt, int len);
+    void parse_statement(c_str stmt) { parse_statement(stmt, strlen(stmt)); }
     void load_rules(const std::string &rules);
     void load_rule_file(c_str file);
+    void print_rules();
 
     // Operation on types
     bool type(c_str name, c_str attr);
@@ -36,9 +59,9 @@ struct sepolicy {
     bool dontaudit(c_str src, c_str tgt, c_str cls, c_str perm);
 
     // Extended permissions access vector rules
-    bool allowxperm(c_str src, c_str tgt, c_str cls, c_str range);
-    bool auditallowxperm(c_str src, c_str tgt, c_str cls, c_str range);
-    bool dontauditxperm(c_str src, c_str tgt, c_str cls, c_str range);
+    bool allowxperm(c_str src, c_str tgt, c_str cls, const argument &xperm);
+    bool auditallowxperm(c_str src, c_str tgt, c_str cls, const argument &xperm);
+    bool dontauditxperm(c_str src, c_str tgt, c_str cls, const argument &xperm);
 
     // Type rules
     bool type_transition(c_str src, c_str tgt, c_str cls, c_str def, c_str obj = nullptr);

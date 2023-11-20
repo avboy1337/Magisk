@@ -6,19 +6,18 @@
 #include <flags.h>
 #include <base.hpp>
 
-// Just need to include it somewhere
-#include <base-rs.cpp>
-
 using namespace std;
 
+#undef vsnprintf
 static int fmt_and_log_with_rs(LogLevel level, const char *fmt, va_list ap) {
-    char buf[4096];
-    int ret = vssprintf(buf, sizeof(buf), fmt, ap);
-    log_with_rs(level, rust::Str(buf, ret));
-    return ret;
+    constexpr int sz = 4096;
+    char buf[sz];
+    buf[0] = '\0';
+    // Fortify logs when a fatal error occurs. Do not run through fortify again
+    int len = std::min(__call_bypassing_fortify(vsnprintf)(buf, sz, fmt, ap), sz - 1);
+    log_with_rs(level, byte_view(buf, len + 1));
+    return len;
 }
-
-int (*cpp_logger)(LogLevel level, const char *fmt, va_list ap) = fmt_and_log_with_rs;
 
 // Used to override external C library logging
 extern "C" int magisk_log_print(int prio, const char *tag, const char *fmt, ...) {
@@ -34,7 +33,7 @@ extern "C" int magisk_log_print(int prio, const char *tag, const char *fmt, ...)
         level = LogLevel::Warn;
         break;
     case ANDROID_LOG_ERROR:
-        level = LogLevel::Error;
+        level = LogLevel::ErrorCxx;
         break;
     default:
         return 0;
@@ -52,17 +51,16 @@ extern "C" int magisk_log_print(int prio, const char *tag, const char *fmt, ...)
     }
     va_list argv;
     va_start(argv, fmt);
-    int ret = cpp_logger(level, fmt_buf, argv);
+    int ret = fmt_and_log_with_rs(level, fmt_buf, argv);
     va_end(argv);
     return ret;
 }
 
-#define LOG_BODY(level) { \
-    va_list argv;        \
-    va_start(argv, fmt); \
-    cpp_logger(LogLevel::level, fmt, argv); \
-    va_end(argv);        \
-}
+#define LOG_BODY(level)   \
+    va_list argv;         \
+    va_start(argv, fmt);  \
+    fmt_and_log_with_rs(LogLevel::level, fmt, argv); \
+    va_end(argv);         \
 
 // LTO will optimize out the NOP function
 #if MAGISK_DEBUG
@@ -72,9 +70,9 @@ void LOGD(const char *fmt, ...) {}
 #endif
 void LOGI(const char *fmt, ...) { LOG_BODY(Info) }
 void LOGW(const char *fmt, ...) { LOG_BODY(Warn) }
-void LOGE(const char *fmt, ...) { LOG_BODY(Error) }
+void LOGE(const char *fmt, ...) { LOG_BODY(ErrorCxx) }
 
 // Export raw symbol to fortify compat
 extern "C" void __vloge(const char* fmt, va_list ap) {
-    cpp_logger(LogLevel::Error, fmt, ap);
+    fmt_and_log_with_rs(LogLevel::ErrorCxx, fmt, ap);
 }

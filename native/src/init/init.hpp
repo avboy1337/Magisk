@@ -1,12 +1,9 @@
 #include <base.hpp>
-#include <init-rs.hpp>
+#include <stream.hpp>
+
+#include "init-rs.hpp"
 
 using kv_pairs = std::vector<std::pair<std::string, std::string>>;
-
-// For API 28 AVD, it uses legacy SAR setup that requires
-// special hacks in magiskinit to work properly. We do not
-// necessarily want this enabled in production builds.
-#define ENABLE_AVD_HACK 0
 
 struct BootConfig {
     bool skip_initramfs;
@@ -30,13 +27,11 @@ struct BootConfig {
 extern std::vector<std::string> mount_list;
 
 int magisk_proxy_main(int argc, char *argv[]);
-bool unxz(int fd, const uint8_t *buf, size_t size);
+bool unxz(out_stream &strm, rust::Slice<const uint8_t> bytes);
 void load_kernel_info(BootConfig *config);
 bool check_two_stage();
-void setup_klog();
 const char *backup_init();
 void restore_ramdisk_init();
-int dump_preload(const char *path, mode_t mode);
 
 /***************
  * Base classes
@@ -64,13 +59,6 @@ private:
     bool hijack_sepolicy();
     void setup_tmp(const char *path);
 protected:
-
-#if ENABLE_AVD_HACK
-    // When this boolean is set, this means we are currently
-    // running magiskinit on legacy SAR AVD emulator
-    bool avd_hack = false;
-#endif
-
     void patch_rw_root();
     void patch_ro_root();
 public:
@@ -99,7 +87,6 @@ private:
     bool prepare();
 public:
     SecondStageInit(char *argv[]) : MagiskInit(argv) {
-        setup_klog();
         LOGD("%s\n", __FUNCTION__);
     };
 

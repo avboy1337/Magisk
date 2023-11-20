@@ -46,7 +46,7 @@
     <string name="install_inactive_slot_msg">您的裝置將在下次重新啟動後強制切換到非使用中的槽位！\n這個選項僅在 OTA 更新完畢後使用。\n請問是否繼續？</string>
     <string name="setup_title">修復安裝</string>
     <string name="select_patch_file">選擇並修補檔案</string>
-    <string name="patch_file_msg">請選取未修改過的映像檔 (*.img) 或 Odin 的 TAR 檔案 (*.tar)</string>
+    <string name="patch_file_msg">請選取未修改過的映像檔 (*.img) 或 Odin 的 TAR 檔案 (*.tar) 或 payload.bin (*.bin)</string>
     <string name="reboot_delay_toast">將在 5 秒後重新啟動……</string>
     <string name="flash_screen_title">安裝</string>
 
@@ -167,9 +167,6 @@
     <string name="settings_su_reauth_summary">應用程式更新後，重新驗證超級使用者的要求</string>
     <string name="settings_su_tapjack_title">啟用點選攔截保護</string>
     <string name="settings_su_tapjack_summary">發現有其他應用程式重疊在超級使用者視窗上面時，不回應允許操作</string>
-    <string name="settings_su_biometric_title">生物特徵辨識驗證</string>
-    <string name="settings_su_biometric_summary">使用生物特徵辨識驗證來允許超級使用者的要求</string>
-    <string name="no_biometric">不支援的裝置或是未啟用生物特徵辨識設定</string>
     <string name="settings_customization">客製化</string>
     <string name="setting_add_shortcut_summary">在主螢幕中新增一個精緻的捷徑。防止隱藏 Magisk 以後，其名稱與圖示將難以辨識</string>
     <string name="settings_doh_title">安全化的網域解析(DoH)</string>

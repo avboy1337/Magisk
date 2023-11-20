@@ -1,5 +1,47 @@
 # Magisk Changelog
 
+### v26.4
+
+- [MagiskBoot] Don't pad zeros if signed boot image is larger
+- [MagiskPolicy] Fix `genfscon` and `filename_trans`
+- [MagiskPolicy] Fix bug in `libsepol`
+- [Zygisk] Fix and simplify file descriptor sanitization logic
+- [App] Prevent OOM when patching AP tarfiles
+- [App] Fix bug in device configuration detection
+- [Daemon] Fix certificate parsing of APKs
+- [General] Fix logging errors from C++ code being ignored
+
+### v26.3
+
+- [General] Fix device information detection script
+- [General] Update BusyBox to 1.36.1
+- [General] Update toolchain that produces broken arm32 executables
+- [App] Fix root service unable to bind on OnePlus devices
+
+### v26.2
+
+- [MagiskBoot] Support extracting boot image from `payload.bin`
+- [MagiskBoot] Support cpio files containing character files
+- [MagiskBoot] Support listing cpio content
+- [MagiskBoot] Directly handle AVB 1.0 signing and verification without going through Java implementation
+- [Daemon] Make daemon socket a fixed path in MAGISKTMP
+- [resetprop] Support printing property context
+- [resetprop] Support only printing persistent properties from storage
+- [resetprop] Properly support setting persistent properties bypassing property_service
+- [MagiskSU] Support `-g` and `-G` options
+- [MagiskSU] Support switching mount namespace to PID with `-t`
+- [MagiskPolicy] Fix patching extended permissions
+- [MagiskPolicy] Support more syntax for extended permissions
+- [MagiskPolicy] Support printing out the loaded sepolicy rules
+- [App] Support patching boot image from ROM zips
+- [App] Properly preserve `boot.img` when patching Samsung firmware with `init_boot.img`
+
+### v26.1
+
+- [App] Fix crashing when revoking root permissions
+- [MagiskInit] Always prefer `ext4` partitions over `f2fs` when selecting the pre-init partition
+- [General] Restore module files' context/owner/group from mirror. This is a regression introduced in v26.0
+
 ### v26.0
 
 - [General] Bump minimum supported Android version to Android 6.0

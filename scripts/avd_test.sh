@@ -3,10 +3,10 @@
 emu="$ANDROID_SDK_ROOT/emulator/emulator"
 avd="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager"
 sdk="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-emu_args='-no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim'
-
-# Should be either 'google_apis' or 'default'
-type='google_apis'
+emu_args='-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -read-only -no-snapshot -show-kernel -memory 8192'
+lsposed_url='https://github.com/LSPosed/LSPosed/releases/download/v1.9.2/LSPosed-v1.9.2-7024-zygisk-release.zip'
+boot_timeout=600
+emu_pid=
 
 # We test these API levels for the following reason
 
@@ -14,14 +14,25 @@ type='google_apis'
 # API 26: legacy rootfs with Treble
 # API 28: legacy system-as-root
 # API 29: 2 Stage Init
-# API 33: latest Android
+# API 33: latest Android with ATD image
+# API 34: latest Android
 
-api_list='23 26 28 29 33'
+api_list='23 26 28 29 33 34'
+
+atd_min_api=30
+atd_max_api=33
+lsposed_min_api=27
+
+print_title() {
+  echo -e "\n\033[44;39m${1}\033[0m\n"
+}
+
+print_error() {
+  echo -e "\n\033[41;39m${1}\033[0m\n"
+}
 
 cleanup() {
-  echo -e '\n\033[41m! An error occurred\033[0m\n'
-  pkill -INT -P $$
-  wait
+  print_error "! An error occurred when testing $pkg"
 
   for api in $api_list; do
     set_api_env $api
@@ -29,11 +40,32 @@ cleanup() {
   done
 
   "$avd" delete avd -n test
+  pkill -INT -P $$
+  wait
+  trap - EXIT
+  exit 1
+}
+
+wait_for_bootanim() {
+  adb wait-for-device
+  while true; do
+    local result="$(adb exec-out getprop init.svc.bootanim)"
+    if [ $? -ne 0 ]; then
+      exit 1
+    elif [ "$result" = "stopped" ]; then
+      break
+    fi
+    sleep 2
+  done
 }
 
 wait_for_boot() {
+  adb wait-for-device
   while true; do
-    if [ -n "$(adb shell getprop sys.boot_completed)" ]; then
+    local result="$(adb exec-out getprop sys.boot_completed)"
+    if [ $? -ne 0 ]; then
+      exit 1
+    elif [ "$result" = "1" ]; then
       break
     fi
     sleep 2
@@ -41,6 +73,11 @@ wait_for_boot() {
 }
 
 set_api_env() {
+  local type='default'
+  if [ $1 -ge $atd_min_api -a $1 -le $atd_max_api ]; then
+    # Use the lightweight ATD images if possible
+    type='aosp_atd'
+  fi
   pkg="system-images;android-$1;$type;$arch"
   local img_dir="$ANDROID_SDK_ROOT/system-images/android-$1/$type/$arch"
   ramdisk="$img_dir/ramdisk.img"
@@ -56,46 +93,112 @@ restore_avd() {
   fi
 }
 
-run_test() {
-  local pid
+wait_emu() {
+  local wait_fn=$1
+  local which_pid
 
-  # Setup emulator
-  echo -e "\n\033[44m* Testing $pkg\033[0m\n"
-  "$sdk" $pkg
-  echo no | "$avd" create avd -f -n test -k $pkg
+  timeout $boot_timeout bash -c $wait_fn &
+  local wait_pid=$!
 
-  # Launch emulator and patch
-  restore_avd
+  # Handle the case when emulator dies earlier than timeout
+  wait -p which_pid -n $emu_pid $wait_pid
+  [ $which_pid -eq $wait_pid ]
+}
+
+run_content_cmd() {
+  while true; do
+    local out=$(adb shell echo "'content call --uri content://com.topjohnwu.magisk.provider --method $1'" \| /system/xbin/su | tee /dev/fd/2)
+    if ! grep -q 'Bundle\[' <<< "$out"; then
+      # The call failed, wait a while and retry later
+      sleep 30
+    else
+      grep -q 'result=true' <<< "$out"
+      return $?
+    fi
+  done
+}
+
+test_emu() {
+  local variant=$1
+  local api=$2
+
+  print_title "* Testing $pkg ($variant)"
+
   "$emu" @test $emu_args &
-  pid=$!
-  timeout 60 adb wait-for-device
-  ./build.py avd_patch -s "$ramdisk"
-  kill -INT $pid
-  wait $pid
-
-  # Test if it boots properly
-  "$emu" @test $emu_args &
-  pid=$!
-  timeout 60 adb wait-for-device
-  timeout 60 bash -c wait_for_boot
+  emu_pid=$!
+  wait_emu wait_for_boot
 
   adb shell magisk -v
-  kill -INT $pid
-  wait $pid
 
+  # Install the Magisk app
+  adb install -r -g out/app-${variant}.apk
+
+  # Use the app to run setup and reboot
+  run_content_cmd setup
+
+  # Install LSPosed
+  if [ $api -ge $lsposed_min_api -a $api -le $atd_max_api ]; then
+    adb push out/lsposed.zip /data/local/tmp/lsposed.zip
+    adb shell echo 'magisk --install-module /data/local/tmp/lsposed.zip' \| /system/xbin/su
+  fi
+
+  adb reboot
+  wait_emu wait_for_boot
+
+  # Run app tests
+  run_content_cmd test
+  adb shell echo 'su -c id' \| /system/xbin/su 2000 | tee /dev/fd/2 | grep -q 'uid=0'
+
+  # Try to launch LSPosed
+  if [ $api -ge $lsposed_min_api -a $api -le $atd_max_api ]; then
+    adb shell am start -c org.lsposed.manager.LAUNCH_MANAGER com.android.shell/.BugreportWarningActivity
+    sleep 10
+    adb shell uiautomator dump
+    adb shell grep -q org.lsposed.manager /sdcard/window_dump.xml
+  fi
+}
+
+
+run_test() {
+  local api=$1
+
+  set_api_env $api
+
+  # Setup emulator
+  "$sdk" --channel=3 $pkg
+  echo no | "$avd" create avd -f -n test -k $pkg
+
+  # Launch stock emulator
+  print_title "* Launching $pkg"
+  restore_avd
+  "$emu" @test $emu_args &
+  emu_pid=$!
+  wait_emu wait_for_bootanim
+
+  # Patch and test debug build
+  ./build.py avd_patch -s "$ramdisk"
+  kill -INT $emu_pid
+  wait $emu_pid
+  test_emu debug $api
+
+  # Re-patch and test release build
+  ./build.py -r avd_patch -s "$ramdisk"
+  kill -INT $emu_pid
+  wait $emu_pid
+  test_emu release $api
+
+  # Cleanup
+  kill -INT $emu_pid
+  wait $emu_pid
   restore_avd
 }
 
 trap cleanup EXIT
 
 export -f wait_for_boot
+export -f wait_for_bootanim
 
 set -xe
-
-if grep -q 'ENABLE_AVD_HACK 0' native/src/init/init.hpp; then
-  echo -e '\n\033[41m! Please patch init.hpp\033[0m\n'
-  exit 1
-fi
 
 case $(uname -m) in
   'arm64'|'aarch64')
@@ -106,13 +209,17 @@ case $(uname -m) in
     ;;
 esac
 
-# Build our executables
-./build.py all
+yes | "$sdk" --licenses > /dev/null
+"$sdk" --channel=3 --update
+curl -L $lsposed_url -o out/lsposed.zip
 
-for api in $api_list; do
-  set_api_env $api
-  run_test
-done
+if [ -n "$1" ]; then
+  run_test $1
+else
+  for api in $api_list; do
+    run_test $api
+  done
+fi
 
 "$avd" delete avd -n test
 

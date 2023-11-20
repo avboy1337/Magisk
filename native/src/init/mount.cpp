@@ -4,8 +4,8 @@
 #include <libgen.h>
 
 #include <base.hpp>
-#include <selinux.hpp>
-#include <magisk.hpp>
+#include <flags.h>
+#include <consts.hpp>
 
 #include "init.hpp"
 
@@ -21,6 +21,10 @@ struct devinfo {
 };
 
 static vector<devinfo> dev_list;
+
+// When this boolean is set, this means we are currently
+// running magiskinit on legacy SAR AVD emulator
+bool avd_hack = false;
 
 static void parse_device(devinfo *dev, const char *uevent) {
     dev->partname[0] = '\0';
@@ -121,7 +125,7 @@ static void switch_root(const string &path) {
 
 #define PREINITMNT MIRRDIR "/preinit"
 
-static void mount_preinit_dir(string path, string preinit_dev) {
+static void mount_preinit_dir(string preinit_dev) {
     if (preinit_dev.empty()) return;
     strcpy(blk_info.partname, preinit_dev.data());
     strcpy(blk_info.block_dev, PREINITDEV);
@@ -156,7 +160,6 @@ static void mount_preinit_dir(string path, string preinit_dev) {
         } else {
             LOGD("preinit: %s\n", preinit_dir.data());
             xmount(preinit_dir.data(), PREINITMIRR, nullptr, MS_BIND, nullptr);
-            mount_list.emplace_back(path += "/" PREINITMIRR);
         }
         xumount2(PREINITMNT, MNT_DETACH);
     } else {
@@ -219,19 +222,17 @@ mount_root:
     bool is_two_stage = access("/apex", F_OK) == 0;
     LOGD("is_two_stage: [%d]\n", is_two_stage);
 
-#if ENABLE_AVD_HACK
-    if (!is_two_stage) {
-        if (config->emulator) {
-            avd_hack = true;
-            // These values are hardcoded for API 28 AVD
-            xmkdir("/dev/block", 0755);
-            strcpy(blk_info.block_dev, "/dev/block/vde1");
-            strcpy(blk_info.partname, "vendor");
-            setup_block();
-            xmount(blk_info.block_dev, "/vendor", "ext4", MS_RDONLY, nullptr);
-        }
+    // For API 28 AVD, it uses legacy SAR setup that requires
+    // special hacks in magiskinit to work properly.
+    if (!is_two_stage && config->emulator) {
+        avd_hack = true;
+        // These values are hardcoded for API 28 AVD
+        xmkdir("/dev/block", 0755);
+        strcpy(blk_info.block_dev, "/dev/block/vde1");
+        strcpy(blk_info.partname, "vendor");
+        setup_block();
+        xmount(blk_info.block_dev, "/vendor", "ext4", MS_RDONLY, nullptr);
     }
-#endif
 
     return is_two_stage;
 }
@@ -260,14 +261,14 @@ void MagiskInit::setup_tmp(const char *path) {
     LOGD("Setup Magisk tmp at %s\n", path);
     chdir("/data");
 
-    xmkdir(INTLROOT, 0755);
+    xmkdir(INTLROOT, 0711);
     xmkdir(MIRRDIR, 0);
     xmkdir(BLOCKDIR, 0);
     xmkdir(WORKERDIR, 0);
 
-    mount_preinit_dir(path, preinit_dev);
+    mount_preinit_dir(preinit_dev);
 
-    cp_afc(".backup/.magisk", INTLROOT "/config");
+    cp_afc(".backup/.magisk", MAIN_CONFIG);
     rm_rf(".backup");
 
     // Create applet symlinks
@@ -275,7 +276,7 @@ void MagiskInit::setup_tmp(const char *path) {
         xsymlink("./magisk", applet_names[i]);
     xsymlink("./magiskpolicy", "supolicy");
 
-    xmount(".", path, nullptr, MS_BIND | MS_REC, nullptr);
+    xmount(".", path, nullptr, MS_BIND, nullptr);
 
     chdir("/");
 }

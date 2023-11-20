@@ -45,6 +45,7 @@ object ServiceLocator {
 
 private fun createSuLogDatabase(context: Context) =
     Room.databaseBuilder(context, SuLogDatabase::class.java, "sulogs.db")
+        .addMigrations(SuLogDatabase.MIGRATION_1_2)
         .fallbackToDestructiveMigration()
         .build()
 

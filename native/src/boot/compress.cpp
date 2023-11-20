@@ -23,12 +23,7 @@ constexpr size_t CHUNK = 0x40000;
 constexpr size_t LZ4_UNCOMPRESSED = 0x800000;
 constexpr size_t LZ4_COMPRESSED = LZ4_COMPRESSBOUND(LZ4_UNCOMPRESSED);
 
-class out_stream : public filter_stream {
-    using filter_stream::filter_stream;
-    using stream::read;
-};
-
-class gz_strm : public out_stream {
+class gz_strm : public filter_out_stream {
 public:
     bool write(const void *buf, size_t len) override {
         return len == 0 || do_write(buf, len, Z_NO_FLUSH);
@@ -56,8 +51,8 @@ protected:
         COPY
     } mode;
 
-    gz_strm(mode_t mode, stream_ptr &&base) :
-        out_stream(std::move(base)), mode(mode), strm{}, outbuf{0} {
+    gz_strm(mode_t mode, out_strm_ptr &&base) :
+            filter_out_stream(std::move(base)), mode(mode), strm{}, outbuf{0} {
         switch(mode) {
         case DECODE:
             inflateInit2(&strm, 15 | 16);
@@ -146,17 +141,17 @@ private:
 
 class gz_decoder : public gz_strm {
 public:
-    explicit gz_decoder(stream_ptr &&base) : gz_strm(DECODE, std::move(base)) {};
+    explicit gz_decoder(out_strm_ptr &&base) : gz_strm(DECODE, std::move(base)) {};
 };
 
 class gz_encoder : public gz_strm {
 public:
-    explicit gz_encoder(stream_ptr &&base) : gz_strm(ENCODE, std::move(base)) {};
+    explicit gz_encoder(out_strm_ptr &&base) : gz_strm(ENCODE, std::move(base)) {};
 };
 
 class zopfli_encoder : public chunk_out_stream {
 public:
-    explicit zopfli_encoder(stream_ptr &&base) :
+    explicit zopfli_encoder(out_strm_ptr &&base) :
         chunk_out_stream(std::move(base), ZOPFLI_MASTER_BLOCK_SIZE),
         zo{}, out(nullptr), outsize(0), crc(crc32_z(0L, Z_NULL, 0)), in_total(0), bp(0) {
         ZopfliInitOptions(&zo);
@@ -200,9 +195,6 @@ public:
 
 protected:
     bool write_chunk(const void *buf, size_t len, bool final) override {
-        if (len == 0)
-            return true;
-
         auto in = static_cast<const unsigned char *>(buf);
 
         in_total += len;
@@ -229,7 +221,7 @@ private:
     unsigned char bp;
 };
 
-class bz_strm : public out_stream {
+class bz_strm : public filter_out_stream {
 public:
     bool write(const void *buf, size_t len) override {
         return len == 0 || do_write(buf, len, BZ_RUN);
@@ -253,8 +245,8 @@ protected:
         ENCODE
     } mode;
 
-    bz_strm(mode_t mode, stream_ptr &&base) :
-        out_stream(std::move(base)), mode(mode), strm{}, outbuf{0} {
+    bz_strm(mode_t mode, out_strm_ptr &&base) :
+            filter_out_stream(std::move(base)), mode(mode), strm{}, outbuf{0} {
         switch(mode) {
         case DECODE:
             BZ2_bzDecompressInit(&strm, 0, 0);
@@ -290,6 +282,8 @@ private:
             }
             if (!bwrite(outbuf, sizeof(outbuf) - strm.avail_out))
                 return false;
+            if (code == BZ_STREAM_END)
+                return true;
         } while (strm.avail_out == 0);
         return true;
     }
@@ -297,15 +291,15 @@ private:
 
 class bz_decoder : public bz_strm {
 public:
-    explicit bz_decoder(stream_ptr &&base) : bz_strm(DECODE, std::move(base)) {};
+    explicit bz_decoder(out_strm_ptr &&base) : bz_strm(DECODE, std::move(base)) {};
 };
 
 class bz_encoder : public bz_strm {
 public:
-    explicit bz_encoder(stream_ptr &&base) : bz_strm(ENCODE, std::move(base)) {};
+    explicit bz_encoder(out_strm_ptr &&base) : bz_strm(ENCODE, std::move(base)) {};
 };
 
-class lzma_strm : public out_stream {
+class lzma_strm : public filter_out_stream {
 public:
     bool write(const void *buf, size_t len) override {
         return len == 0 || do_write(buf, len, LZMA_RUN);
@@ -323,8 +317,8 @@ protected:
         ENCODE_LZMA
     } mode;
 
-    lzma_strm(mode_t mode, stream_ptr &&base) :
-        out_stream(std::move(base)), mode(mode), strm(LZMA_STREAM_INIT), outbuf{0} {
+    lzma_strm(mode_t mode, out_strm_ptr &&base) :
+            filter_out_stream(std::move(base)), mode(mode), strm(LZMA_STREAM_INIT), outbuf{0} {
         lzma_options_lzma opt;
 
         // Initialize preset
@@ -375,23 +369,23 @@ private:
 
 class lzma_decoder : public lzma_strm {
 public:
-    explicit lzma_decoder(stream_ptr &&base) : lzma_strm(DECODE, std::move(base)) {}
+    explicit lzma_decoder(out_strm_ptr &&base) : lzma_strm(DECODE, std::move(base)) {}
 };
 
 class xz_encoder : public lzma_strm {
 public:
-    explicit xz_encoder(stream_ptr &&base) : lzma_strm(ENCODE_XZ, std::move(base)) {}
+    explicit xz_encoder(out_strm_ptr &&base) : lzma_strm(ENCODE_XZ, std::move(base)) {}
 };
 
 class lzma_encoder : public lzma_strm {
 public:
-    explicit lzma_encoder(stream_ptr &&base) : lzma_strm(ENCODE_LZMA, std::move(base)) {}
+    explicit lzma_encoder(out_strm_ptr &&base) : lzma_strm(ENCODE_LZMA, std::move(base)) {}
 };
 
-class LZ4F_decoder : public out_stream {
+class LZ4F_decoder : public filter_out_stream {
 public:
-    explicit LZ4F_decoder(stream_ptr &&base) :
-        out_stream(std::move(base)), ctx(nullptr), outbuf(nullptr), outCapacity(0) {
+    explicit LZ4F_decoder(out_strm_ptr &&base) :
+            filter_out_stream(std::move(base)), ctx(nullptr), outbuf(nullptr), outCapacity(0) {
         LZ4F_createDecompressionContext(&ctx, LZ4F_VERSION);
     }
 
@@ -441,10 +435,10 @@ private:
     size_t outCapacity;
 };
 
-class LZ4F_encoder : public out_stream {
+class LZ4F_encoder : public filter_out_stream {
 public:
-    explicit LZ4F_encoder(stream_ptr &&base) :
-        out_stream(std::move(base)), ctx(nullptr), out_buf(nullptr), outCapacity(0) {
+    explicit LZ4F_encoder(out_strm_ptr &&base) :
+            filter_out_stream(std::move(base)), ctx(nullptr), out_buf(nullptr), outCapacity(0) {
         LZ4F_createCompressionContext(&ctx, LZ4F_VERSION);
     }
 
@@ -507,7 +501,7 @@ private:
 
 class LZ4_decoder : public chunk_out_stream {
 public:
-    explicit LZ4_decoder(stream_ptr &&base) :
+    explicit LZ4_decoder(out_strm_ptr &&base) :
         chunk_out_stream(std::move(base), LZ4_COMPRESSED, sizeof(block_sz)),
         out_buf(new char[LZ4_UNCOMPRESSED]), block_sz(0) {}
 
@@ -517,7 +511,7 @@ public:
     }
 
 protected:
-    bool write_chunk(const void *buf, size_t len, bool final) override {
+    bool write_chunk(const void *buf, size_t len, bool) override {
         // This is an error
         if (len != chunk_sz)
             return false;
@@ -554,7 +548,7 @@ private:
 
 class LZ4_encoder : public chunk_out_stream {
 public:
-    explicit LZ4_encoder(stream_ptr &&base, bool lg) :
+    explicit LZ4_encoder(out_strm_ptr &&base, bool lg) :
         chunk_out_stream(std::move(base), LZ4_UNCOMPRESSED),
         out_buf(new char[LZ4_COMPRESSED]), lg(lg), in_total(0) {
         bwrite("\x02\x21\x4c\x18", 4);
@@ -568,7 +562,7 @@ public:
     }
 
 protected:
-    bool write_chunk(const void *buf, size_t len, bool final) override {
+    bool write_chunk(const void *buf, size_t len, bool) override {
         auto in = static_cast<const char *>(buf);
         uint32_t block_sz = LZ4_compress_HC(in, out_buf, len, LZ4_COMPRESSED, LZ4HC_CLEVEL_MAX);
         if (block_sz == 0) {
@@ -588,7 +582,7 @@ private:
     uint32_t in_total;
 };
 
-filter_strm_ptr get_encoder(format_t type, stream_ptr &&base) {
+out_strm_ptr get_encoder(format_t type, out_strm_ptr &&base) {
     switch (type) {
         case XZ:
             return make_unique<xz_encoder>(std::move(base));
@@ -610,7 +604,7 @@ filter_strm_ptr get_encoder(format_t type, stream_ptr &&base) {
     }
 }
 
-filter_strm_ptr get_decoder(format_t type, stream_ptr &&base) {
+out_strm_ptr get_decoder(format_t type, out_strm_ptr &&base) {
     switch (type) {
         case XZ:
         case LZMA:
@@ -634,7 +628,7 @@ void decompress(char *infile, const char *outfile) {
     bool rm_in = false;
 
     FILE *in_fp = in_std ? stdin : xfopen(infile, "re");
-    stream_ptr strm;
+    out_strm_ptr strm;
 
     char buf[4096];
     size_t len;
@@ -667,7 +661,7 @@ void decompress(char *infile, const char *outfile) {
             }
 
             FILE *out_fp = outfile == "-"sv ? stdout : xfopen(outfile, "we");
-            strm = get_decoder(type, make_unique<fp_stream>(out_fp));
+            strm = get_decoder(type, make_unique<fp_channel>(out_fp));
             if (ext) *ext = '.';
         }
         if (!strm->write(buf, len))
@@ -708,7 +702,7 @@ void compress(const char *method, const char *infile, const char *outfile) {
         out_fp = outfile == "-"sv ? stdout : xfopen(outfile, "we");
     }
 
-    auto strm = get_encoder(fmt, make_unique<fp_stream>(out_fp));
+    auto strm = get_encoder(fmt, make_unique<fp_channel>(out_fp));
 
     char buf[4096];
     size_t len;
@@ -722,4 +716,19 @@ void compress(const char *method, const char *infile, const char *outfile) {
 
     if (rm_in)
         unlink(infile);
+}
+
+bool decompress(rust::Slice<const uint8_t> buf, int fd) {
+    format_t type = check_fmt(buf.data(), buf.length());
+
+    if (!COMPRESSED(type)) {
+        LOGE("Input file is not a supported compression format!\n");
+        return false;
+    }
+
+    auto strm = get_decoder(type, make_unique<fd_channel>(fd));
+    if (!strm->write(buf.data(), buf.length())) {
+        return false;
+    }
+    return true;
 }

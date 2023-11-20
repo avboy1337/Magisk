@@ -184,26 +184,28 @@ The `customize.sh` script runs in Magisk's BusyBox `ash` shell with "Standalone 
 
 ```
 ui_print <msg>
-    print <msg> to console
+    Print <msg> to console
     Avoid using 'echo' as it will not display in custom recovery's console
 
 abort <msg>
-    print error message <msg> to console and terminate the installation
+    Print error message <msg> to console and terminate the installation
     Avoid using 'exit' as it will skip the termination cleanup steps
 
 set_perm <target> <owner> <group> <permission> [context]
-    if [context] is not set, the default is "u:object_r:system_file:s0"
-    this function is a shorthand for the following commands:
+    If [context] is not specified, the default is "u:object_r:system_file:s0"
+    This function is a shorthand for the following commands:
        chown owner.group target
        chmod permission target
        chcon context target
 
 set_perm_recursive <directory> <owner> <group> <dirpermission> <filepermission> [context]
-    if [context] is not set, the default is "u:object_r:system_file:s0"
-    for all files in <directory>, it will call:
-       set_perm file owner group filepermission context
-    for all directories in <directory> (including itself), it will call:
-       set_perm dir owner group dirpermission context
+    If [context] is not specified, the default is "u:object_r:system_file:s0"
+    This function is a shorthand for the following psuedo code:
+      set_perm <directory> owner group dirpermission context
+      for file in <directory>:
+        set_perm file owner group filepermission context
+      for dir in <directory>:
+        set_perm_recursive dir owner group dirpermission context
 ```
 
 For convenience, you can also declare a list of folders you want to replace in the variable name `REPLACE`. The module installer script will create the `.replace` file into the folders listed in `REPLACE`. For example:
@@ -263,7 +265,7 @@ Overlay files shall be placed in the `overlay.d` folder in boot image ramdisk, a
 
 To add additional files which you can refer to in your custom `*.rc` scripts, add them into `overlay.d/sbin`. The 3 rules above do not apply to anything in this folder; instead, they will be directly copied to Magisk's internal `tmpfs` directory (which used to always be `/sbin`).
 
-Starting from Android 11, the `/sbin` folder may no longer exists, and in that scenario, Magisk randomly generates a different `tmpfs` folder each boot. Every occurrence of the pattern `${MAGISKTMP}` in your `*.rc` scripts will be replaced with the Magisk `tmpfs` folder when `magiskinit` injects it into `init.rc`. On pre Android 11 devices, `${MAGISKTMP}` will simply be replaced with `/sbin`, so **NEVER** hardcode `/sbin` in the `*.rc` scripts when referencing these additional files.
+Starting from Android 11, the `/sbin` folder may no longer exists, and in that scenario, Magisk uses `/debug_ramdisk` instead. Every occurrence of the pattern `${MAGISKTMP}` in your `*.rc` scripts will be replaced with the Magisk `tmpfs` folder when `magiskinit` injects it into `init.rc`. On pre Android 11 devices, `${MAGISKTMP}` will simply be replaced with `/sbin`, so **NEVER** hardcode `/sbin` in the `*.rc` scripts when referencing these additional files.
 
 Here is an example of how to setup `overlay.d` with a custom `*.rc` script:
 

@@ -44,7 +44,6 @@ fix_env() {
   rm -rf $MAGISKBIN/*
   mkdir -p $MAGISKBIN 2>/dev/null
   chmod 700 $NVBASE
-  rm $1/stub.apk 2>/dev/null
   cp_readlink $1 $MAGISKBIN
   rm -rf $1
   chown -R 0:0 $MAGISKBIN
@@ -155,7 +154,7 @@ check_boot_ramdisk() {
   $ISAB && return 0
 
   # If we are using legacy SAR, but not A/B, assume we do not have ramdisk
-  if grep ' / ' /proc/mounts | grep -q '/dev/root'; then
+  if $LEGACYSAR; then
     # Override recovery mode to true
     RECOVERYMODE=true
     return 1
@@ -194,24 +193,25 @@ check_encryption() {
 mount_partitions() {
   [ "$(getprop ro.build.ab_update)" = "true" ] && SLOT=$(getprop ro.boot.slot_suffix)
   # Check whether non rootfs root dir exists
-  SYSTEM_ROOT=false
-  grep ' / ' /proc/mounts | grep -qv 'rootfs' && SYSTEM_ROOT=true
+  SYSTEM_AS_ROOT=false
+  grep ' / ' /proc/mounts | grep -qv 'rootfs' && SYSTEM_AS_ROOT=true
+
+  LEGACYSAR=false
+  grep ' / ' /proc/mounts | grep -q '/dev/root' && LEGACYSAR=true
 }
 
 get_flags() {
-  KEEPVERITY=$SYSTEM_ROOT
+  KEEPVERITY=$SYSTEM_AS_ROOT
   ISENCRYPTED=false
   [ "$(getprop ro.crypto.state)" = "encrypted" ] && ISENCRYPTED=true
   KEEPFORCEENCRYPT=$ISENCRYPTED
-  # Although this most certainly won't work without root, keep it just in case
-  if [ -e /dev/block/by-name/vbmeta_a ] || [ -e /dev/block/by-name/vbmeta ]; then
-    VBMETAEXIST=true
+  if [ -n "$(getprop ro.boot.vbmeta.device)" -o -n "$(getprop ro.boot.vbmeta.size)" ]; then
+    PATCHVBMETAFLAG=false
+  elif getprop ro.product.ab_ota_partitions | grep -wq vbmeta; then
+    PATCHVBMETAFLAG=false
   else
-    VBMETAEXIST=false
+    PATCHVBMETAFLAG=true
   fi
-  # Preset PATCHVBMETAFLAG to false in the non-root case
-  PATCHVBMETAFLAG=false
-  # Make sure RECOVERYMODE has value
   [ -z $RECOVERYMODE ] && RECOVERYMODE=false
 }
 
@@ -229,7 +229,7 @@ app_init() {
   check_boot_ramdisk && RAMDISKEXIST=true
   get_flags
   run_migrations
-  SHA1=$(grep_prop SHA1 $MAGISKTMP/config)
+  SHA1=$(grep_prop SHA1 $MAGISKTMP/.magisk/config)
   check_encryption
 }
 

@@ -46,7 +46,7 @@
     <string name="install_inactive_slot_msg">Vaše zariadenie bude po reštarte PRINÚTENÉ nabootovať do aktuálne neaktívneho slotu!\nTúto voľbu použite iba po skončení OTA.\nPokračovať?</string>
     <string name="setup_title">Ďalšie nastavenia</string>
     <string name="select_patch_file">Vybrať a zaplátať súbor</string>
-    <string name="patch_file_msg">Vyberte raw súbor (*.img) alebo tar súbor ODIN (*.tar)</string>
+    <string name="patch_file_msg">Vyberte raw súbor (*.img) alebo tar súbor ODIN (*.tar) alebo payload.bin (*.bin)</string>
     <string name="reboot_delay_toast">Reštart o 5 sekúnd…</string>
     <string name="flash_screen_title">Inštalácia</string>
 
@@ -87,7 +87,10 @@
     <string name="menuClearLog">Odstrániť záznam</string>
     <string name="logs_cleared">Záznam úspešne odstránený</string>
     <string name="pid">PID:%1$d</string>
-    <string name="target_uid">Cieľový UID: %1$d</string>
+    <string name="target_uid">Cieľové UID: %1$d</string>
+    <string name="target_pid">Pripojiť ns cieľový PID: %s</string>
+    <string name="selinux_context">SELinux kontext: %s</string>
+    <string name="supp_group">Doplnková skupina: %s</string>
 
     <!--SafetyNet-->
 
@@ -167,9 +170,9 @@
     <string name="settings_su_reauth_summary">Opätovne vyzve na udelenie oprávnení Superužívateľa po upgrade aplikácie</string>
     <string name="settings_su_tapjack_title">Ochrana pred tapjackingom</string>
     <string name="settings_su_tapjack_summary">Dialógové okno superužívateľa nebude reagovať na zadanie, ak je zakryté alebo prekryté iným oknom</string>
-    <string name="settings_su_biometric_title">Biometrické overenie</string>
-    <string name="settings_su_biometric_summary">Použije biometrickú autentifikáciu na povolenie žiadostí superužívateľa</string>
-    <string name="no_biometric">Nepodporované zariadenie alebo žiadne biometrické nastavenia nie sú povolené</string>
+    <string name="settings_su_auth_title">Overenie používateľa</string>
+    <string name="settings_su_auth_summary">Žiadosť o overenie používateľa počas požiadaviek Superužívateľa</string>
+    <string name="settings_su_auth_insecure">V zariadení nie je nakonfigurovaná žiadna metóda overovania</string>
     <string name="settings_customization">Prispôsobenie</string>
     <string name="setting_add_shortcut_summary">V prípade, že sa po skrytí apky názov a ikona ťažko rozpoznávajú, pridať na domovskú obrazovku odkaz</string>
     <string name="settings_doh_title">DNS over HTTPS</string>

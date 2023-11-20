@@ -10,16 +10,20 @@ import androidx.lifecycle.viewModelScope
 import com.topjohnwu.magisk.BR
 import com.topjohnwu.magisk.R
 import com.topjohnwu.magisk.arch.AsyncLoadViewModel
+import com.topjohnwu.magisk.core.Config
 import com.topjohnwu.magisk.core.Info
 import com.topjohnwu.magisk.core.data.magiskdb.PolicyDao
 import com.topjohnwu.magisk.core.di.AppContext
 import com.topjohnwu.magisk.core.ktx.getLabel
 import com.topjohnwu.magisk.core.model.su.SuPolicy
-import com.topjohnwu.magisk.core.utils.BiometricHelper
 import com.topjohnwu.magisk.core.utils.currentLocale
-import com.topjohnwu.magisk.databinding.*
+import com.topjohnwu.magisk.databinding.MergeObservableList
+import com.topjohnwu.magisk.databinding.RvItem
+import com.topjohnwu.magisk.databinding.bindExtra
+import com.topjohnwu.magisk.databinding.diffList
+import com.topjohnwu.magisk.databinding.set
 import com.topjohnwu.magisk.dialog.SuperuserRevokeDialog
-import com.topjohnwu.magisk.events.BiometricEvent
+import com.topjohnwu.magisk.events.AuthEvent
 import com.topjohnwu.magisk.events.SnackbarEvent
 import com.topjohnwu.magisk.utils.asText
 import com.topjohnwu.magisk.view.TextItem
@@ -106,17 +110,15 @@ class SuperuserViewModel(
         fun updateState() = viewModelScope.launch {
             db.delete(item.item.uid)
             val list = ArrayList(itemsPolicies)
-            list.removeAll { it.itemSameAs(item) }
+            list.removeAll { it.item.uid == item.item.uid }
             itemsPolicies.update(list)
             if (list.isEmpty() && itemsHelpers.isEmpty()) {
                 itemsHelpers.add(itemNoData)
             }
         }
 
-        if (BiometricHelper.isEnabled) {
-            BiometricEvent {
-                onSuccess { updateState() }
-            }.publish()
+        if (Config.userAuth) {
+            AuthEvent { updateState() }.publish()
         } else {
             SuperuserRevokeDialog(item.title) { updateState() }.show()
         }
@@ -155,24 +157,21 @@ class SuperuserViewModel(
     }
 
     fun togglePolicy(item: PolicyRvItem, enable: Boolean) {
+        val items = itemsPolicies.filter { it.item.uid == item.item.uid }
         fun updateState() {
             viewModelScope.launch {
                 val res = if (enable) R.string.su_snack_grant else R.string.su_snack_deny
                 item.item.policy = if (enable) SuPolicy.ALLOW else SuPolicy.DENY
                 db.update(item.item)
-                itemsPolicies.forEach {
-                    if (it.item.uid == item.item.uid) {
-                        it.notifyPropertyChanged(BR.enabled)
-                    }
+                items.forEach {
+                    it.notifyPropertyChanged(BR.enabled)
                 }
                 SnackbarEvent(res.asText(item.appName)).publish()
             }
         }
 
-        if (BiometricHelper.isEnabled) {
-            BiometricEvent {
-                onSuccess { updateState() }
-            }.publish()
+        if (Config.userAuth) {
+            AuthEvent { updateState() }.publish()
         } else {
             updateState()
         }

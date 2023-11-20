@@ -2,12 +2,10 @@
 #include <vector>
 #include <sys/wait.h>
 
-#include <magisk.hpp>
+#include <consts.hpp>
 #include <base.hpp>
 #include <selinux.hpp>
-#include <daemon.hpp>
-
-#include "core.hpp"
+#include <core.hpp>
 
 using namespace std;
 
@@ -15,15 +13,18 @@ using namespace std;
 
 static const char *bbpath() {
     static string path;
-    if (path.empty())
-        path = MAGISKTMP + "/" BBPATH "/busybox";
+    path = get_magisk_tmp();
+    path += "/" BBPATH "/busybox";
+    if (access(path.data(), X_OK) != 0) {
+        path = DATABIN "/busybox";
+    }
     return path.data();
 }
 
 static void set_script_env() {
     setenv("ASH_STANDALONE", "1", 1);
     char new_path[4096];
-    sprintf(new_path, "%s:%s", getenv("PATH"), MAGISKTMP.data());
+    ssprintf(new_path, sizeof(new_path), "%s:%s", getenv("PATH"), get_magisk_tmp());
     setenv("PATH", new_path, 1);
     if (zygisk_enabled)
         setenv("ZYGISK_ENABLED", "1", 1);
@@ -210,7 +211,7 @@ static void abort(FILE *fp, const char *fmt, ...) {
 }
 
 constexpr char install_module_script[] = R"EOF(
-exec $(magisk --path)/.magisk/busybox/busybox sh -c '
+exec %s sh -c '
 . /data/adb/magisk/util_functions.sh
 install_module
 exit 0'
@@ -220,7 +221,7 @@ void install_module(const char *file) {
     if (getuid() != 0)
         abort(stderr, "Run this command with root");
     if (access(DATABIN, F_OK) ||
-        access(DATABIN "/busybox", X_OK) ||
+        access(bbpath(), X_OK) ||
         access(DATABIN "/util_functions.sh", F_OK))
         abort(stderr, "Incomplete Magisk install");
     if (access(file, F_OK))
@@ -236,7 +237,10 @@ void install_module(const char *file) {
     xdup2(fd, STDERR_FILENO);
     close(fd);
 
-    const char *argv[] = { "/system/bin/sh", "-c", install_module_script, nullptr };
+    char cmds[256];
+    ssprintf(cmds, sizeof(cmds), install_module_script, bbpath());
+
+    const char *argv[] = { "/system/bin/sh", "-c", cmds, nullptr };
     execve(argv[0], (char **) argv, environ);
     abort(stdout, "Failed to execute BusyBox shell");
 }

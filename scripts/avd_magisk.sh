@@ -1,9 +1,8 @@
-#!/usr/bin/env bash
 #####################################################################
 #   AVD Magisk Setup
 #####################################################################
 #
-# Support API level: 23 - 33
+# Support API level: 23 - 34
 #
 # With an emulator booted and accessible via ADB, usage:
 # ./build.py emulator
@@ -45,7 +44,7 @@ if [ -z "$FIRST_STAGE" ]; then
   fi
 fi
 
-pm install -r $(pwd)/magisk.apk
+pm install -r -g $(pwd)/magisk.apk
 
 # Extract files from APK
 unzip -oj magisk.apk 'assets/util_functions.sh' 'assets/stub.apk'
@@ -62,10 +61,12 @@ done
 # Stop zygote (and previous setup if exists)
 magisk --stop 2>/dev/null
 stop
-if [ -d /dev/avd-magisk ]; then
-  umount -l /dev/avd-magisk 2>/dev/null
-  rm -rf /dev/avd-magisk 2>/dev/null
+if [ -d /debug_ramdisk ]; then
+  umount -l /debug_ramdisk 2>/dev/null
 fi
+
+# Make sure boot completed props are not set to 1
+setprop sys.boot_completed 0
 
 # Mount /cache if not already mounted
 if ! grep -q ' /cache ' /proc/mounts; then
@@ -90,7 +91,7 @@ elif [ -e /sbin ]; then
   mount_sbin
   mkdir -p /dev/sysroot
   block=$(mount | grep ' / ' | awk '{ print $1 }')
-  [ $block = "/dev/root" ] && block=/dev/block/dm-0
+  [ $block = "/dev/root" ] && block=/dev/block/vda1
   mount -o ro $block /dev/sysroot
   for file in /dev/sysroot/sbin/*; do
     [ ! -e $file ] && break
@@ -106,17 +107,18 @@ elif [ -e /sbin ]; then
   rm -rf /dev/sysroot
 else
   # Android Q+ without sbin
-  MAGISKTMP=/dev/avd-magisk
-  mkdir /dev/avd-magisk
-  mount -t tmpfs -o 'mode=0755' magisk /dev/avd-magisk
+  MAGISKTMP=/debug_ramdisk
+  # If a file name 'magisk' is in current directory, mount will fail
+  rm -f magisk
+  mount -t tmpfs -o 'mode=0755' magisk /debug_ramdisk
 fi
 
 # Magisk stuff
 mkdir -p $MAGISKBIN 2>/dev/null
 unzip -oj magisk.apk 'assets/*.sh' -d $MAGISKBIN
 mkdir $NVBASE/modules 2>/dev/null
-mkdir $POSTFSDATAD 2>/dev/null
-mkdir $SERVICED 2>/dev/null
+mkdir $NVBASE/post-fs-data.d 2>/dev/null
+mkdir $NVBASE/service.d 2>/dev/null
 
 for file in magisk32 magisk64 magiskpolicy stub.apk; do
   chmod 755 ./$file
@@ -134,7 +136,6 @@ else
 fi
 ln -s ./magisk $MAGISKTMP/su
 ln -s ./magisk $MAGISKTMP/resetprop
-ln -s ./magisk $MAGISKTMP/magiskhide
 ln -s ./magiskpolicy $MAGISKTMP/supolicy
 
 mkdir -p $MAGISKTMP/.magisk/mirror

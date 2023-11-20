@@ -46,7 +46,7 @@
     <string name="install_inactive_slot_msg">Pajisja juaj do të detyrohet të fillojë në folenë aktuale joaktive pas një rindezje!\nPërdoreni këtë opsion vetëm pasi të keni përfunduar OTA.\nVazhdo?</string>
     <string name="setup_title">Konfigurimet shtesë</string>
     <string name="select_patch_file">Zgjidhni dhe Patch një skader</string>
-    <string name="patch_file_msg">Zgjidhni një imazh të papërpunuar (*.img) ose një ODIN tar skader (*.tar)</string>
+    <string name="patch_file_msg">Zgjidhni një imazh të papërpunuar (*.img) ose një skedar ODIN (*.tar) ose një payload.bin (*.bin)</string>
     <string name="reboot_delay_toast">Rinisje pas 5 sekondash…</string>
     <string name="flash_screen_title">Instalimi</string>
 
@@ -88,6 +88,9 @@
     <string name="logs_cleared">Regjistrat u pastuan me sukses</string>
     <string name="pid">PID: %1$d</string>
     <string name="target_uid">Target UID: %1$d</string>
+    <string name="target_pid">Montoni PID të synuar ns: %s</string>
+    <string name="selinux_context">Konteksti SELinux: %s</string>
+    <string name="supp_group">Grupi suplementar: %s</string>
 
     <!--SafetyNet-->
 
@@ -167,9 +170,6 @@
     <string name="settings_su_reauth_summary">Ri-vërtetoni lejet e super-përdoruesit pas azhurnimit të aplikacionit</string>
     <string name="settings_su_tapjack_title">Aktivizo mbrojtjen tapjacking</string>
     <string name="settings_su_tapjack_summary">Dialogu i menjëhershëm i super-përdoruesit nuk do ti përgjigjet hyrjes ndërsa është i errësuar nga ndonjë dritare ose mbivendosje tjetër</string>
-    <string name="settings_su_biometric_title">Aktivizo vërtetimin biometrik</string>
-    <string name="settings_su_biometric_summary">Përdorni vërtetimin biometrik për të lejuar kërkesat e super-përdoruesit</string>
-    <string name="no_biometric">Pajisja e pambështetur ose cilësimet biometrike nuk janë të aktivizuara</string>
     <string name="settings_customization">Personalizimi</string>
     <string name="setting_add_shortcut_summary">Shtoni një shkurtore mjaft të mirë në ekranin fillestar në rast se emri dhe ikona janë të vështira për tu njohur pasi keni fshehur aplikacionin</string>
     <string name="settings_doh_title">DNS mbi HTTPS</string>
@@ -188,7 +188,10 @@
     <string name="global_summary">Të gjitha sesionet rrënjë përdorin hapësirën globale të emrave të montimit</string>
     <string name="requester_summary">Seancat rrënjësore do të trashëgojnë hapësirën e emrave të kërkuesit të tyre</string>
     <string name="isolate_summary">Çdo sesion rrënjë do të ketë hapësirën e vet të izoluar të emrave</string>
-
+    <string name="settings_su_auth_title">Vërtetimi i përdoruesit</string>
+    <string name="settings_su_auth_summary">Kërkoni vërtetimin e përdoruesit gjatë kërkesave të Superpërdoruesit</string>
+    <string name="settings_su_auth_insecure">Asnjë metodë vërtetimi nuk është konfiguruar në pajisje</string>
+    
     <!--Notifications-->
     <string name="update_channel">Përditësimet e magisk</string>
     <string name="updated_channel">Përditësimi përfundoi</string>

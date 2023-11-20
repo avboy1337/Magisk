@@ -1,24 +1,30 @@
 package com.topjohnwu.magisk.core.tasks
 
 import android.net.Uri
+import android.system.ErrnoException
 import android.system.Os
+import android.system.OsConstants
+import android.system.OsConstants.O_WRONLY
 import android.widget.Toast
 import androidx.annotation.WorkerThread
 import androidx.core.os.postDelayed
 import com.topjohnwu.magisk.BuildConfig
 import com.topjohnwu.magisk.R
 import com.topjohnwu.magisk.StubApk
-import com.topjohnwu.magisk.core.*
+import com.topjohnwu.magisk.core.AppApkPath
+import com.topjohnwu.magisk.core.Config
+import com.topjohnwu.magisk.core.Const
+import com.topjohnwu.magisk.core.Info
 import com.topjohnwu.magisk.core.di.ServiceLocator
+import com.topjohnwu.magisk.core.isRunningAsStub
+import com.topjohnwu.magisk.core.ktx.copyAndClose
 import com.topjohnwu.magisk.core.ktx.reboot
 import com.topjohnwu.magisk.core.ktx.toast
-import com.topjohnwu.magisk.core.ktx.withStreams
 import com.topjohnwu.magisk.core.ktx.writeTo
 import com.topjohnwu.magisk.core.utils.MediaStoreUtils
 import com.topjohnwu.magisk.core.utils.MediaStoreUtils.inputStream
 import com.topjohnwu.magisk.core.utils.MediaStoreUtils.outputStream
 import com.topjohnwu.magisk.core.utils.RootUtils
-import com.topjohnwu.magisk.signing.SignBoot
 import com.topjohnwu.superuser.Shell
 import com.topjohnwu.superuser.ShellUtils
 import com.topjohnwu.superuser.internal.NOPList
@@ -40,6 +46,7 @@ import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 abstract class MagiskInstallImpl protected constructor(
     protected val console: MutableList<String> = NOPList.getInstance(),
@@ -111,7 +118,9 @@ abstract class MagiskInstallImpl protected constructor(
                     val name = n.substring(3, n.length - 3)
                     val dest = File(installDir, name)
                     zf.getInputStream(it).writeTo(dest)
+                    dest.setExecutable(true)
                 }
+                zf.close()
             } else {
                 val info = context.applicationInfo
                 var libs = File(info.nativeLibraryDir).listFiles { _, name ->
@@ -119,7 +128,8 @@ abstract class MagiskInstallImpl protected constructor(
                 } ?: emptyArray()
 
                 // Also symlink magisk32 on non 64-bit only 64-bit devices
-                val lib32 = info.javaClass.getDeclaredField("secondaryNativeLibraryDir").get(info) as String?
+                val lib32 = info.javaClass.getDeclaredField("secondaryNativeLibraryDir")
+                    .get(info) as String?
                 if (lib32 != null) {
                     libs += File(lib32, "libmagisk32.so")
                 }
@@ -164,102 +174,218 @@ abstract class MagiskInstallImpl protected constructor(
         return true
     }
 
-    private fun InputStream.cleanPump(out: OutputStream) = withStreams(this, out) { src, _ ->
-        src.copyTo(out)
-    }
+    private fun InputStream.copyAndCloseOut(out: OutputStream) = out.use { copyTo(it) }
 
     private fun newTarEntry(name: String, size: Long): TarEntry {
         console.add("-- Writing: $name")
         return TarEntry(TarHeader.createHeader(name, size, 0, false, 420 /* 0644 */))
     }
 
+    private class NoAvailableStream(s: InputStream) : FilterInputStream(s) {
+        // Make sure available is never called on the actual stream and always return 0
+        // 1. Workaround bug in LZ4FrameInputStream
+        // 2. Reduce max buffer size to prevent OOM
+        override fun available() = 0
+    }
+
+    private class NoBootException : IOException()
+
     @Throws(IOException::class)
-    private fun processTar(input: InputStream, output: OutputStream): OutputStream {
+    private fun processTar(tarIn: TarInputStream, tarOut: TarOutputStream): ExtendedFile {
         console.add("- Processing tar file")
-        val tarOut = TarOutputStream(output)
-        TarInputStream(input).use { tarIn ->
-            lateinit var entry: TarEntry
+        lateinit var entry: TarEntry
 
-            fun decompressedStream(): InputStream {
-                val src = if (entry.name.endsWith(".lz4")) LZ4FrameInputStream(tarIn) else tarIn
-                return object : FilterInputStream(src) {
-                    override fun available() = 0  /* Workaround bug in LZ4FrameInputStream */
-                    override fun close() { /* Never close src stream */ }
-                }
-            }
+        fun decompressedStream(): InputStream {
+            val stream = if (entry.name.endsWith(".lz4")) LZ4FrameInputStream(tarIn) else tarIn
+            return NoAvailableStream(stream)
+        }
 
-            while (tarIn.nextEntry?.let { entry = it } != null) {
-                if (entry.name.startsWith("boot.img") ||
-                    entry.name.startsWith("init_boot.img") ||
-                    (Config.recovery && entry.name.contains("recovery.img"))) {
-                    val name = entry.name.replace(".lz4", "")
-                    console.add("-- Extracting: $name")
+        while (tarIn.nextEntry?.let { entry = it } != null) {
+            if (entry.name.startsWith("boot.img") ||
+                entry.name.startsWith("init_boot.img") ||
+                (Config.recovery && entry.name.contains("recovery.img"))) {
+                val name = entry.name.replace(".lz4", "")
+                console.add("-- Extracting: $name")
 
-                    val extract = installDir.getChildFile(name)
-                    decompressedStream().cleanPump(extract.newOutputStream())
-                } else if (entry.name.contains("vbmeta.img")) {
-                    val rawData = decompressedStream().readBytes()
-                    // Valid vbmeta.img should be at least 256 bytes
-                    if (rawData.size < 256)
-                        continue
+                val extract = installDir.getChildFile(name)
+                decompressedStream().copyAndCloseOut(extract.newOutputStream())
+            } else if (entry.name.contains("vbmeta.img")) {
+                val rawData = decompressedStream().readBytes()
+                // Valid vbmeta.img should be at least 256 bytes
+                if (rawData.size < 256)
+                    continue
 
-                    // Patch flags to AVB_VBMETA_IMAGE_FLAGS_HASHTREE_DISABLED |
-                    // AVB_VBMETA_IMAGE_FLAGS_VERIFICATION_DISABLED
-                    console.add("-- Patching: vbmeta.img")
-                    ByteBuffer.wrap(rawData).putInt(120, 3)
-                    tarOut.putNextEntry(newTarEntry("vbmeta.img", rawData.size.toLong()))
-                    tarOut.write(rawData)
-                } else {
-                    console.add("-- Copying: ${entry.name}")
-                    tarOut.putNextEntry(entry)
-                    tarIn.copyTo(tarOut, bufferSize = 1024 * 1024)
-                }
+                // Patch flags to AVB_VBMETA_IMAGE_FLAGS_HASHTREE_DISABLED |
+                // AVB_VBMETA_IMAGE_FLAGS_VERIFICATION_DISABLED
+                console.add("-- Patching: vbmeta.img")
+                ByteBuffer.wrap(rawData).putInt(120, 3)
+                tarOut.putNextEntry(newTarEntry("vbmeta.img", rawData.size.toLong()))
+                tarOut.write(rawData)
+                // vbmeta partition exist, disable boot vbmeta patch
+                Info.patchBootVbmeta = false
+            } else if (entry.name.contains("userdata.img")) {
+                continue
+            } else {
+                console.add("-- Copying: ${entry.name}")
+                tarOut.putNextEntry(entry)
+                tarIn.copyTo(tarOut, bufferSize = 1024 * 1024)
             }
         }
+
         val boot = installDir.getChildFile("boot.img")
         val initBoot = installDir.getChildFile("init_boot.img")
         val recovery = installDir.getChildFile("recovery.img")
-        if (Config.recovery && recovery.exists() && boot.exists()) {
-            // Install to recovery
-            srcBoot = recovery
-            // Repack boot image to prevent auto restore
-            arrayOf(
-                "cd $installDir",
-                "chmod -R 755 .",
-                "./magiskboot unpack boot.img",
-                "./magiskboot repack boot.img",
-                "cat new-boot.img > boot.img",
-                "./magiskboot cleanup",
-                "rm -f new-boot.img",
-                "cd /").sh()
-            boot.newInputStream().use {
-                tarOut.putNextEntry(newTarEntry("boot.img", boot.length()))
+
+        fun ExtendedFile.copyToTar() {
+            newInputStream().use {
+                tarOut.putNextEntry(newTarEntry(name, length()))
                 it.copyTo(tarOut)
             }
-            boot.delete()
-        } else {
-            srcBoot = when {
-                initBoot.exists() -> initBoot
-                boot.exists() -> boot
-                else -> {
-                    console.add("! No boot image found")
-                    throw IOException()
+            delete()
+        }
+
+        // Patch priority: recovery > init_boot > boot
+        return when {
+            recovery.exists() -> {
+                if (boot.exists()) {
+                    // Repack boot image to prevent auto restore
+                    arrayOf(
+                        "cd $installDir",
+                        "chmod -R 755 .",
+                        "./magiskboot unpack boot.img",
+                        "./magiskboot repack boot.img",
+                        "cat new-boot.img > boot.img",
+                        "./magiskboot cleanup",
+                        "rm -f new-boot.img",
+                        "cd /").sh()
+                    boot.copyToTar()
+                }
+                recovery
+            }
+            initBoot.exists() -> {
+                if (boot.exists())
+                    boot.copyToTar()
+                initBoot
+            }
+            boot.exists() -> boot
+            else -> throw NoBootException()
+        }
+    }
+
+    @Throws(IOException::class)
+    private fun processZip(zipIn: ZipInputStream): ExtendedFile {
+        console.add("- Processing zip file")
+        val boot = installDir.getChildFile("boot.img")
+        val initBoot = installDir.getChildFile("init_boot.img")
+        lateinit var entry: ZipEntry
+        while (zipIn.nextEntry?.also { entry = it } != null) {
+            if (entry.isDirectory) continue
+            when (entry.name.substringAfterLast('/')) {
+                "payload.bin" -> {
+                    try {
+                        return processPayload(zipIn)
+                    } catch (e: IOException) {
+                        // No boot image in payload.bin, continue to find boot images
+                    }
+                }
+                "init_boot.img" -> {
+                    console.add("- Extracting init_boot.img")
+                    zipIn.copyAndCloseOut(initBoot.newOutputStream())
+                    return initBoot
+                }
+                "boot.img" -> {
+                    console.add("- Extracting boot.img")
+                    zipIn.copyAndCloseOut(boot.newOutputStream())
+                    // Don't return here since there might be an init_boot.img
                 }
             }
         }
-        return tarOut
+        if (boot.exists()) {
+            return boot
+        } else {
+            throw NoBootException()
+        }
+    }
+
+    @Throws(IOException::class)
+    private fun processPayload(input: InputStream): ExtendedFile {
+        var fifo: File? = null
+        try {
+            console.add("- Processing payload.bin")
+            fifo = File.createTempFile("payload-fifo-", null, installDir)
+            fifo.delete()
+            Os.mkfifo(fifo.path, 420 /* 0644 */)
+
+            // Enqueue the shell command first, or the subsequent FIFO open will block
+            val future = arrayOf(
+                "cd $installDir",
+                "./magiskboot extract $fifo",
+                "cd /"
+            ).eq()
+
+            val fd = Os.open(fifo.path, O_WRONLY, 0)
+            try {
+                val bufSize = 1024 * 1024
+                val buf = ByteBuffer.allocate(bufSize)
+                buf.position(input.read(buf.array()).coerceAtLeast(0)).flip()
+                while (buf.hasRemaining()) {
+                    try {
+                        Os.write(fd, buf)
+                    } catch (e: ErrnoException) {
+                        if (e.errno != OsConstants.EPIPE)
+                            throw e
+                        // If SIGPIPE, then the other side is closed, we're done
+                        break
+                    }
+                    if (!buf.hasRemaining()) {
+                        buf.limit(bufSize)
+                        buf.position(input.read(buf.array()).coerceAtLeast(0)).flip()
+                    }
+                }
+            } finally {
+                Os.close(fd)
+            }
+
+            val success = try { future.get().isSuccess } catch (e: Exception) { false }
+            if (!success) {
+                console.add("! Error while extracting payload.bin")
+                throw IOException()
+            }
+            val boot = installDir.getChildFile("boot.img")
+            val initBoot = installDir.getChildFile("init_boot.img")
+            return when {
+                initBoot.exists() -> {
+                    console.add("-- Extract init_boot.img")
+                    initBoot
+                }
+                boot.exists() -> {
+                    console.add("-- Extract boot.img")
+                    boot
+                }
+                else -> {
+                    throw NoBootException()
+                }
+            }
+        } catch (e: ErrnoException) {
+            throw IOException(e)
+        } finally {
+            fifo?.delete()
+        }
     }
 
     private fun handleFile(uri: Uri): Boolean {
         val outStream: OutputStream
-        var outFile: MediaStoreUtils.UriFile? = null
+        val outFile: MediaStoreUtils.UriFile
 
         // Process input file
         try {
             uri.inputStream().buffered().use { src ->
                 src.mark(500)
-                val magic = ByteArray(5)
-                if (src.skip(257) != 257L || src.read(magic) != magic.size) {
+                val magic = ByteArray(4)
+                val tarMagic = ByteArray(5)
+                if (src.read(magic) != magic.size || src.skip(253) != 253L ||
+                    src.read(tarMagic) != tarMagic.size
+                ) {
                     console.add("! Invalid input file")
                     return false
                 }
@@ -275,29 +401,52 @@ abstract class MagiskInstallImpl protected constructor(
                     toString()
                 }
 
-                outStream = if (magic.contentEquals("ustar".toByteArray())) {
+                srcBoot = if (tarMagic.contentEquals("ustar".toByteArray())) {
                     // tar file
                     outFile = MediaStoreUtils.getFile("$filename.tar", true)
-                    processTar(src, outFile!!.uri.outputStream())
+                    outStream = TarOutputStream(outFile.uri.outputStream())
+
+                    try {
+                        processTar(TarInputStream(src), outStream)
+                    } catch (e: IOException) {
+                        outStream.close()
+                        outFile.delete()
+                        throw e
+                    }
                 } else {
                     // raw image
-                    srcBoot = installDir.getChildFile("boot.img")
-                    console.add("- Copying image to cache")
-                    src.cleanPump(srcBoot.newOutputStream())
                     outFile = MediaStoreUtils.getFile("$filename.img", true)
-                    outFile!!.uri.outputStream()
+                    outStream = outFile.uri.outputStream()
+
+                    try {
+                        if (magic.contentEquals("CrAU".toByteArray())) {
+                            processPayload(src)
+                        } else if (magic.contentEquals("PK\u0003\u0004".toByteArray())) {
+                            processZip(ZipInputStream(src))
+                        } else {
+                            console.add("- Copying image to cache")
+                            installDir.getChildFile("boot.img").also {
+                                src.copyAndCloseOut(it.newOutputStream())
+                            }
+                        }
+                    } catch (e: IOException) {
+                        outStream.close()
+                        outFile.delete()
+                        throw e
+                    }
                 }
             }
         } catch (e: IOException) {
+            if (e is NoBootException)
+                console.add("! No boot image found")
             console.add("! Process error")
-            outFile?.delete()
             Timber.e(e)
             return false
         }
 
         // Patch file
         if (!patchBoot()) {
-            outFile!!.delete()
+            outFile.delete()
             return false
         }
 
@@ -314,7 +463,7 @@ abstract class MagiskInstallImpl protected constructor(
                 }
                 outStream.putNextEntry(newTarEntry(name, newBoot.length()))
             }
-            newBoot.newInputStream().cleanPump(outStream)
+            newBoot.newInputStream().copyAndClose(outStream)
             newBoot.delete()
 
             console.add("")
@@ -324,7 +473,7 @@ abstract class MagiskInstallImpl protected constructor(
             console.add("****************************")
         } catch (e: IOException) {
             console.add("! Failed to output to $outFile")
-            outFile!!.delete()
+            outFile.delete()
             Timber.e(e)
             return false
         }
@@ -337,22 +486,6 @@ abstract class MagiskInstallImpl protected constructor(
     }
 
     private fun patchBoot(): Boolean {
-        var isSigned = false
-        if (!srcBoot.isCharacter) {
-            try {
-                srcBoot.newInputStream().use {
-                    if (SignBoot.verifySignature(it, null)) {
-                        isSigned = true
-                        console.add("- Boot image is signed with AVB 1.0")
-                    }
-                }
-            } catch (e: IOException) {
-                console.add("! Unable to check signature")
-                Timber.e(e)
-                return false
-            }
-        }
-
         val newBoot = installDir.getChildFile("new-boot.img")
         if (!useRootDir) {
             // Create output files before hand
@@ -364,34 +497,15 @@ abstract class MagiskInstallImpl protected constructor(
             "cd $installDir",
             "KEEPFORCEENCRYPT=${Config.keepEnc} " +
             "KEEPVERITY=${Config.keepVerity} " +
-            "PATCHVBMETAFLAG=${Config.patchVbmeta} " +
+            "PATCHVBMETAFLAG=${Info.patchBootVbmeta} " +
             "RECOVERYMODE=${Config.recovery} " +
-            "SYSTEM_ROOT=${Info.isSAR} " +
+            "LEGACYSAR=${Info.legacySAR} " +
             "sh boot_patch.sh $srcBoot")
+        val isSuccess = cmds.sh().isSuccess
 
-        if (!cmds.sh().isSuccess)
-            return false
+        shell.newJob().add("./magiskboot cleanup", "cd /").exec()
 
-        val job = shell.newJob().add("./magiskboot cleanup", "cd /")
-
-        if (isSigned) {
-            console.add("- Signing boot image with verity keys")
-            val signed = File.createTempFile("signed", ".img", context.cacheDir)
-            try {
-                val src = newBoot.newInputStream().buffered()
-                val out = signed.outputStream().buffered()
-                withStreams(src, out) { _, _ ->
-                    SignBoot.doSignature(null, null, src, out, "/boot")
-                }
-            } catch (e: IOException) {
-                console.add("! Unable to sign image")
-                Timber.e(e)
-                return false
-            }
-            job.add("cat $signed > $newBoot", "rm -f $signed")
-        }
-        job.exec()
-        return true
+        return isSuccess
     }
 
     private fun flashBoot() = "direct_install $installDir $srcBoot".sh().isSuccess
@@ -413,6 +527,7 @@ abstract class MagiskInstallImpl protected constructor(
         return true
     }
 
+    private fun Array<String>.eq() = shell.newJob().add(*this).to(console, logs).enqueue()
     private fun String.sh() = shell.newJob().add(this).to(console, logs).exec()
     private fun Array<String>.sh() = shell.newJob().add(*this).to(console, logs).exec()
     private fun String.fsh() = ShellUtils.fastCmd(shell, this)

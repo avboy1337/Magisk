@@ -45,7 +45,7 @@
     <string name="install_inactive_slot_msg">Seu dispositivo será FORÇADO a inicializar no slot inativo atual após uma reinicialização!\nSó use esta opção após a conclusão do OTA.\nDeseja continuar?</string>
     <string name="setup_title">Configuração adicional</string>
     <string name="select_patch_file">Selecione e corrija um arquivo</string>
-    <string name="patch_file_msg">Selecione um arquivo imagem (*.img) ou um arquivo tar (*.tar)</string>
+    <string name="patch_file_msg">Selecione um arquivo imagem (*.img) ou um arquivo tar (*.tar) ou um arquivo payload.bin (*.bin)</string>
     <string name="reboot_delay_toast">Reiniciando em 5 segundos…</string>
     <string name="flash_screen_title">Instalação</string>
 
@@ -86,6 +86,9 @@
     <string name="logs_cleared">Registro limpo com sucesso.</string>
     <string name="pid">PID: %1$d</string>
     <string name="target_uid">Alvo UID: %1$d</string>
+    <string name="target_pid">Alvo PID: %s</string>
+    <string name="selinux_context">Contexto SELinux: %s</string>
+    <string name="supp_group">Grupo suplementar: %s</string>
 
     <!--MagiskHide-->
     <string name="show_system_app">Mostrar apps do Sistema</string>
@@ -109,6 +112,8 @@
     <string name="suspend_text_zygisk">Módulo suspenso porque %1$s não está ativo</string>
     <string name="zygisk_module_unloaded">Modulo Zygisk não carregado devido a incompatibilidade</string>
     <string name="module_empty">Nenhum módulo instalado</string>
+    <string name="confirm_install">Instalar módulo %1$s?</string>
+    <string name="confirm_install_title">Confirmação de Instalação</string>
 
     <!--Settings-->
     <string name="settings_dark_mode_title">Modo de tema</string>
@@ -161,9 +166,6 @@
     <string name="settings_su_reauth_summary">Reautenticar permissões de SuperUsuário após atualizar aplicativo</string>
     <string name="settings_su_tapjack_title">Ativar Proteção Contra Atividades Sobrepostas</string>
     <string name="settings_su_tapjack_summary">A caixa de diálogo do SuperUsuário não responderá à entrada enquanto estiver obscurecida por qualquer outra janela ou sobreposição</string>
-    <string name="settings_su_biometric_title">Ativar Autenticação Biométrica</string>
-    <string name="settings_su_biometric_summary">Use a autenticação biométrica para permitir solicitações de SuperUsuário</string>
-    <string name="no_biometric">Dispositivo não suportado ou nenhuma configuração biométrica está ativada</string>
     <string name="settings_customization">Personalizações</string>
     <string name="setting_add_shortcut_summary">Adicione um atalho na tela inicial, caso o nome e o ícone sejam difíceis de reconhecer logo após ocultar o aplicativo</string>
     <string name="settings_doh_title">Ativar DNS sobre HTTPS</string>
@@ -213,6 +215,7 @@
     <string name="setup_fail">Falha na instalação</string>
     <string name="env_fix_title">Configuração adicional exigida</string>
     <string name="env_fix_msg">Seu dispositivo exige uma configuração adicional para o Magisk funcionar corretamente. Deseja continuar e reiniciar?</string>
+    <string name="env_full_fix_msg">Seu dispositivo precisa refazer o flash do Magisk para funcionar corretamente. Reinstale o Magisk no aplicativo, o modo de recuperação não pode obter as devidas informações do dispositivo.</string>
     <string name="setup_msg">Executando a configuração do ambiente…</string>
     <string name="authenticate">Autenticar</string>
     <string name="unsupport_magisk_title">Versão do Magisk não suportada</string>

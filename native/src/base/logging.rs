@@ -1,8 +1,26 @@
-use std::fmt::Arguments;
+use num_derive::{FromPrimitive, ToPrimitive};
+use num_traits::FromPrimitive;
+use std::fmt;
+use std::fmt::{Arguments, Display};
 use std::io::{stderr, stdout, Write};
+use std::panic::Location;
 use std::process::exit;
 
-use crate::ffi::LogLevel;
+use crate::ffi::LogLevelCxx;
+use crate::{Utf8CStr, Utf8CStrBufArr};
+
+// Error handling and logging throughout the Rust codebase in Magisk:
+//
+// All errors should be logged and consumed as soon as possible and converted into LoggedError.
+// For `Result` with errors that implement the `Display` trait, use the `?` operator to
+// log and convert to LoggedResult.
+//
+// To log an error with more information, use `ResultExt::log_with_msg()`.
+//
+// The "cxx" method variants in `CxxResultExt` are only used for C++ interop and
+// should not be used directly in any Rust code.
+//
+// For general logging, use the <level>!(...) macros.
 
 // Ugly hack to avoid using enum
 #[allow(non_snake_case, non_upper_case_globals)]
@@ -14,18 +32,29 @@ mod LogFlag {
     pub const ExitOnError: u32 = 1 << 4;
 }
 
+#[derive(Copy, Clone, FromPrimitive, ToPrimitive)]
+#[repr(i32)]
+pub enum LogLevel {
+    ErrorCxx = LogLevelCxx::ErrorCxx.repr,
+    Error = LogLevelCxx::Error.repr,
+    Warn = LogLevelCxx::Warn.repr,
+    Info = LogLevelCxx::Info.repr,
+    Debug = LogLevelCxx::Debug.repr,
+}
+
 // We don't need to care about thread safety, because all
 // logger changes will only happen on the main thread.
 pub static mut LOGGER: Logger = Logger {
-    fmt: |_, _| {},
     write: |_, _| {},
     flags: 0,
 };
 
+type LogWriter = fn(level: LogLevel, msg: &Utf8CStr);
+type Formatter<'a> = &'a mut dyn fmt::Write;
+
 #[derive(Copy, Clone)]
 pub struct Logger {
-    pub fmt: fn(level: LogLevel, args: Arguments),
-    pub write: fn(level: LogLevel, msg: &[u8]),
+    pub write: LogWriter,
     pub flags: u32,
 }
 
@@ -40,19 +69,18 @@ pub fn exit_on_error(b: bool) {
 }
 
 impl LogLevel {
-    fn to_disable_flag(&self) -> u32 {
+    fn as_disable_flag(&self) -> u32 {
         match *self {
-            LogLevel::Error => LogFlag::DisableError,
+            LogLevel::Error | LogLevel::ErrorCxx => LogFlag::DisableError,
             LogLevel::Warn => LogFlag::DisableWarn,
             LogLevel::Info => LogFlag::DisableInfo,
             LogLevel::Debug => LogFlag::DisableDebug,
-            _ => 0,
         }
     }
 }
 
 pub fn set_log_level_state(level: LogLevel, enabled: bool) {
-    let flag = level.to_disable_flag();
+    let flag = level.as_disable_flag();
     unsafe {
         if enabled {
             LOGGER.flags &= !flag
@@ -62,46 +90,47 @@ pub fn set_log_level_state(level: LogLevel, enabled: bool) {
     }
 }
 
-pub fn log_with_rs(level: LogLevel, msg: &str) {
+fn log_with_writer<F: FnOnce(LogWriter)>(level: LogLevel, f: F) {
     let logger = unsafe { LOGGER };
-    if (logger.flags & level.to_disable_flag()) != 0 {
+    if (logger.flags & level.as_disable_flag()) != 0 {
         return;
     }
-    (logger.write)(level, msg.as_bytes());
-    if level == LogLevel::Error && (logger.flags & LogFlag::ExitOnError) != 0 {
+    f(logger.write);
+    if matches!(level, LogLevel::ErrorCxx) && (logger.flags & LogFlag::ExitOnError) != 0 {
         exit(1);
     }
 }
 
-pub fn log_impl(level: LogLevel, args: Arguments) {
-    let logger = unsafe { LOGGER };
-    if (logger.flags & level.to_disable_flag()) != 0 {
-        return;
+pub fn log_from_cxx(level: LogLevelCxx, msg: &[u8]) {
+    if let Some(level) = LogLevel::from_i32(level.repr) {
+        // SAFETY: The null termination is handled on the C++ side
+        let msg = unsafe { Utf8CStr::from_bytes_unchecked(msg) };
+        log_with_writer(level, |write| write(level, msg));
     }
-    (logger.fmt)(level, args);
-    if level == LogLevel::Error && (logger.flags & LogFlag::ExitOnError) != 0 {
-        exit(1);
-    }
+}
+
+pub fn log_with_formatter<F: FnOnce(Formatter) -> fmt::Result>(level: LogLevel, f: F) {
+    log_with_writer(level, |write| {
+        let mut buf = Utf8CStrBufArr::default();
+        f(&mut buf).ok();
+        write(level, &buf);
+    });
+}
+
+pub fn log_with_args(level: LogLevel, args: Arguments) {
+    log_with_formatter(level, |w| w.write_fmt(args));
 }
 
 pub fn cmdline_logging() {
-    fn cmdline_print(level: LogLevel, args: Arguments) {
-        if level == LogLevel::Info {
-            print!("{}", args);
+    fn cmdline_write(level: LogLevel, msg: &Utf8CStr) {
+        if matches!(level, LogLevel::Info) {
+            stdout().write_all(msg.as_bytes()).ok();
         } else {
-            eprint!("{}", args);
-        }
-    }
-    fn cmdline_write(level: LogLevel, msg: &[u8]) {
-        if level == LogLevel::Info {
-            stdout().write_all(msg).ok();
-        } else {
-            stderr().write_all(msg).ok();
+            stderr().write_all(msg.as_bytes()).ok();
         }
     }
 
     let logger = Logger {
-        fmt: cmdline_print,
         write: cmdline_write,
         flags: LogFlag::ExitOnError,
     };
@@ -111,47 +140,221 @@ pub fn cmdline_logging() {
 }
 
 #[macro_export]
-macro_rules! perror {
-    ($fmt:expr) => {
-        $crate::log_impl($crate::ffi::LogLevel::Error, format_args_nl!(
-            concat!($fmt, " failed with {}: {}"),
-            crate::errno(),
-            crate::error_str()
-        ))
-    };
-    ($fmt:expr, $($args:tt)*) => {
-        $crate::log_impl($crate::ffi::LogLevel::Error, format_args_nl!(
-            concat!($fmt, " failed with {}: {}"),
-            $($args)*,
-            crate::errno(),
-            crate::error_str()
-        ))
-    };
-}
-
-#[macro_export]
 macro_rules! error {
-    ($($args:tt)+) => ($crate::log_impl($crate::ffi::LogLevel::Error, format_args_nl!($($args)+)))
+    ($($args:tt)+) => {
+        $crate::log_with_args($crate::LogLevel::Error, format_args_nl!($($args)+))
+    }
 }
 
 #[macro_export]
 macro_rules! warn {
-    ($($args:tt)+) => ($crate::log_impl($crate::ffi::LogLevel::Warn, format_args_nl!($($args)+)))
+    ($($args:tt)+) => {
+        $crate::log_with_args($crate::LogLevel::Warn, format_args_nl!($($args)+))
+    }
 }
 
 #[macro_export]
 macro_rules! info {
-    ($($args:tt)+) => ($crate::log_impl($crate::ffi::LogLevel::Info, format_args_nl!($($args)+)))
+    ($($args:tt)+) => {
+        $crate::log_with_args($crate::LogLevel::Info, format_args_nl!($($args)+))
+    }
 }
 
 #[cfg(debug_assertions)]
 #[macro_export]
 macro_rules! debug {
-    ($($args:tt)+) => ($crate::log_impl($crate::ffi::LogLevel::Debug, format_args_nl!($($args)+)))
+    ($($args:tt)+) => {
+        $crate::log_with_args($crate::LogLevel::Debug, format_args_nl!($($args)+))
+    }
 }
 
 #[cfg(not(debug_assertions))]
 #[macro_export]
 macro_rules! debug {
     ($($args:tt)+) => {};
+}
+
+#[derive(Default)]
+pub struct LoggedError {}
+
+// Automatically handle all printable errors
+impl<T: Display> From<T> for LoggedError {
+    #[cfg(not(debug_assertions))]
+    fn from(e: T) -> Self {
+        log_with_args(LogLevel::Error, format_args_nl!("{:#}", e));
+        LoggedError::default()
+    }
+
+    #[track_caller]
+    #[cfg(debug_assertions)]
+    fn from(e: T) -> Self {
+        let caller = Location::caller();
+        log_with_args(
+            LogLevel::Error,
+            format_args_nl!("[{}:{}] {:#}", caller.file(), caller.line(), e),
+        );
+        LoggedError::default()
+    }
+}
+
+pub type LoggedResult<T> = Result<T, LoggedError>;
+
+#[macro_export]
+macro_rules! log_err {
+    ($msg:literal $(,)?) => {{
+        $crate::log_with_args($crate::LogLevel::Error, format_args_nl!($msg));
+        $crate::LoggedError::default()
+    }};
+    ($err:expr $(,)?) => {{
+        $crate::log_with_args($crate::LogLevel::Error, format_args_nl!("{}", $err));
+        $crate::LoggedError::default()
+    }};
+    ($($args:tt)+) => {{
+        $crate::log_with_args($crate::LogLevel::Error, format_args_nl!($($args)+));
+        $crate::LoggedError::default()
+    }};
+}
+
+pub trait ResultExt<T> {
+    fn log(self) -> LoggedResult<T>;
+    fn log_with_msg<F: FnOnce(Formatter) -> fmt::Result>(self, f: F) -> LoggedResult<T>;
+}
+
+pub trait ResultNoLog<T> {
+    fn no_log(self) -> LoggedResult<T>;
+}
+
+// Internal C++ bridging logging routines
+pub(crate) trait CxxResultExt<T> {
+    fn log_cxx(self) -> LoggedResult<T>;
+    fn log_cxx_with_msg<F: FnOnce(Formatter) -> fmt::Result>(self, f: F) -> LoggedResult<T>;
+}
+
+trait LogImpl<T> {
+    fn log_impl(self, level: LogLevel, caller: Option<&'static Location>) -> LoggedResult<T>;
+    fn log_with_msg_impl<F: FnOnce(Formatter) -> fmt::Result>(
+        self,
+        level: LogLevel,
+        caller: Option<&'static Location>,
+        f: F,
+    ) -> LoggedResult<T>;
+}
+
+impl<T, E> ResultNoLog<T> for Result<T, E> {
+    fn no_log(self) -> LoggedResult<T> {
+        match self {
+            Ok(v) => Ok(v),
+            Err(_) => Err(LoggedError::default()),
+        }
+    }
+}
+
+impl<T> ResultNoLog<T> for Option<T> {
+    fn no_log(self) -> LoggedResult<T> {
+        match self {
+            Some(v) => Ok(v),
+            None => Err(LoggedError::default()),
+        }
+    }
+}
+
+impl<T, R: LogImpl<T>> CxxResultExt<T> for R {
+    fn log_cxx(self) -> LoggedResult<T> {
+        self.log_impl(LogLevel::ErrorCxx, None)
+    }
+
+    fn log_cxx_with_msg<F: FnOnce(Formatter) -> fmt::Result>(self, f: F) -> LoggedResult<T> {
+        self.log_with_msg_impl(LogLevel::ErrorCxx, None, f)
+    }
+}
+
+impl<T, R: LogImpl<T>> ResultExt<T> for R {
+    #[cfg(not(debug_assertions))]
+    fn log(self) -> LoggedResult<T> {
+        self.log_impl(LogLevel::Error, None)
+    }
+
+    #[track_caller]
+    #[cfg(debug_assertions)]
+    fn log(self) -> LoggedResult<T> {
+        self.log_impl(LogLevel::Error, Some(Location::caller()))
+    }
+
+    #[cfg(not(debug_assertions))]
+    fn log_with_msg<F: FnOnce(Formatter) -> fmt::Result>(self, f: F) -> LoggedResult<T> {
+        self.log_with_msg_impl(LogLevel::Error, None, f)
+    }
+
+    #[track_caller]
+    #[cfg(debug_assertions)]
+    fn log_with_msg<F: FnOnce(Formatter) -> fmt::Result>(self, f: F) -> LoggedResult<T> {
+        self.log_with_msg_impl(LogLevel::Error, Some(Location::caller()), f)
+    }
+}
+
+impl<T> LogImpl<T> for LoggedResult<T> {
+    fn log_impl(self, _: LogLevel, _: Option<&'static Location>) -> LoggedResult<T> {
+        self
+    }
+
+    fn log_with_msg_impl<F: FnOnce(Formatter) -> fmt::Result>(
+        self,
+        level: LogLevel,
+        caller: Option<&'static Location>,
+        f: F,
+    ) -> LoggedResult<T> {
+        match self {
+            Ok(v) => Ok(v),
+            Err(_) => {
+                log_with_formatter(level, |w| {
+                    if let Some(caller) = caller {
+                        write!(w, "[{}:{}] ", caller.file(), caller.line())?;
+                    }
+                    f(w)?;
+                    w.write_char('\n')
+                });
+                Err(LoggedError::default())
+            }
+        }
+    }
+}
+
+impl<T, E: Display> LogImpl<T> for Result<T, E> {
+    fn log_impl(self, level: LogLevel, caller: Option<&'static Location>) -> LoggedResult<T> {
+        match self {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                if let Some(caller) = caller {
+                    log_with_args(
+                        level,
+                        format_args_nl!("[{}:{}] {:#}", caller.file(), caller.line(), e),
+                    );
+                } else {
+                    log_with_args(level, format_args_nl!("{:#}", e));
+                }
+                Err(LoggedError::default())
+            }
+        }
+    }
+
+    fn log_with_msg_impl<F: FnOnce(Formatter) -> fmt::Result>(
+        self,
+        level: LogLevel,
+        caller: Option<&'static Location>,
+        f: F,
+    ) -> LoggedResult<T> {
+        match self {
+            Ok(v) => Ok(v),
+            Err(e) => {
+                log_with_formatter(level, |w| {
+                    if let Some(caller) = caller {
+                        write!(w, "[{}:{}] ", caller.file(), caller.line())?;
+                    }
+                    f(w)?;
+                    writeln!(w, ": {:#}", e)
+                });
+                Err(LoggedError::default())
+            }
+        }
+    }
 }
