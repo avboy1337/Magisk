@@ -5,6 +5,7 @@ avd="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/avdmanager"
 sdk="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
 emu_args='-no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -read-only -no-snapshot -show-kernel -memory 8192'
 lsposed_url='https://github.com/LSPosed/LSPosed/releases/download/v1.9.2/LSPosed-v1.9.2-7024-zygisk-release.zip'
+emu_url='https://github.com/topjohnwu/magisk-files/releases/download/files/emulator-darwin-x86-34.1.14.zip'
 boot_timeout=600
 emu_pid=
 
@@ -14,13 +15,12 @@ emu_pid=
 # API 26: legacy rootfs with Treble
 # API 28: legacy system-as-root
 # API 29: 2 Stage Init
-# API 33: latest Android with ATD image
 # API 34: latest Android
 
-api_list='23 26 28 29 33 34'
+api_list='23 26 28 29 34'
 
 atd_min_api=30
-atd_max_api=33
+atd_max_api=34
 lsposed_min_api=27
 
 print_title() {
@@ -151,10 +151,13 @@ test_emu() {
 
   # Try to launch LSPosed
   if [ $api -ge $lsposed_min_api -a $api -le $atd_max_api ]; then
+    adb shell rm -f /data/local/tmp/window_dump.xml
     adb shell am start -c org.lsposed.manager.LAUNCH_MANAGER com.android.shell/.BugreportWarningActivity
-    sleep 10
-    adb shell uiautomator dump
-    adb shell grep -q org.lsposed.manager /sdcard/window_dump.xml
+    while adb shell '[ ! -f /data/local/tmp/window_dump.xml ]'; do
+      sleep 10
+      adb shell uiautomator dump /data/local/tmp/window_dump.xml
+    done
+    adb shell grep -q org.lsposed.manager /data/local/tmp/window_dump.xml
   fi
 }
 
@@ -210,8 +213,17 @@ case $(uname -m) in
 esac
 
 yes | "$sdk" --licenses > /dev/null
-"$sdk" --channel=3 --update
 curl -L $lsposed_url -o out/lsposed.zip
+
+if [ -n "$GITHUB_ACTIONS" ]; then
+  # Download the specially built emulator to run on GitHub action runners
+  curl -L $emu_url -o emulator.zip
+  unzip emulator.zip
+  emu='./emulator/emulator'
+else
+  # Directly use the official emulator
+  "$sdk" --channel=3 emulator
+fi
 
 if [ -n "$1" ]; then
   run_test $1

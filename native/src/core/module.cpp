@@ -15,8 +15,6 @@ using namespace std;
 
 #define VLOGD(tag, from, to) LOGD("%-8s: %s <- %s\n", tag, to, from)
 
-static string native_bridge = "0";
-
 static int bind_mount(const char *reason, const char *from, const char *to) {
     int ret = xmount(from, to, nullptr, MS_BIND | MS_REC, nullptr);
     if (ret == 0)
@@ -124,8 +122,8 @@ void dir_node::collect_module_files(const char *module, int dfd) {
  * Mount Implementations
  ************************/
 
-void node_entry::create_and_mount(const char *reason, const string &src) {
-    const string &dest = node_path();
+void node_entry::create_and_mount(const char *reason, const string &src, bool ro) {
+    const string dest = isa<tmpfs_node>(parent()) ? worker_path() : node_path();
     if (is_lnk()) {
         VLOGD("cp_link", src.data(), dest.data());
         cp_afc(src.data(), dest.data());
@@ -137,6 +135,9 @@ void node_entry::create_and_mount(const char *reason, const string &src) {
         else
             return;
         bind_mount(reason, src.data(), dest.data());
+        if (ro) {
+            xmount(nullptr, dest.data(), nullptr, MS_REMOUNT | MS_BIND | MS_RDONLY, nullptr);
+        }
     }
 }
 
@@ -162,22 +163,23 @@ void module_node::mount() {
 
 void tmpfs_node::mount() {
     string src = mirror_path();
-    const string &dest = node_path();
-    const char *src_path;
-    if (access(src.data(), F_OK) == 0)
-        src_path = src.data();
-    else
-        src_path = parent()->node_path().data();
+    const char *src_path = access(src.data(), F_OK) == 0 ? src.data() : nullptr;
     if (!isa<tmpfs_node>(parent())) {
-        auto worker_dir = get_magisk_tmp() + "/"s WORKERDIR + dest;
+        const string &dest = node_path();
+        auto worker_dir = worker_path();
         mkdirs(worker_dir.data(), 0);
-        create_and_mount(skip_mirror() ? "replace" : "tmpfs", worker_dir);
+        bind_mount("tmpfs", worker_dir.data(), worker_dir.data());
+        clone_attr(src_path ?: parent()->node_path().data(), worker_dir.data());
+        dir_node::mount();
+        VLOGD(skip_mirror() ? "replace" : "move", worker_dir.data(), dest.data());
+        xmount(worker_dir.data(), dest.data(), nullptr, MS_MOVE, nullptr);
     } else {
+        const string dest = worker_path();
         // We don't need another layer of tmpfs if parent is tmpfs
         mkdir(dest.data(), 0);
+        clone_attr(src_path ?: parent()->worker_path().data(), dest.data());
+        dir_node::mount();
     }
-    clone_attr(src_path, dest.data());
-    dir_node::mount();
 }
 
 /****************
@@ -193,7 +195,7 @@ public:
         if (access(src.data(), F_OK))
             return;
 
-        const string &dir_name = parent()->node_path();
+        const string dir_name = isa<tmpfs_node>(parent()) ? parent()->worker_path() : parent()->node_path();
         if (name() == "magisk") {
             for (int i = 0; applet_names[i]; ++i) {
                 string dest = dir_name + "/" + applet_names[i];
@@ -205,8 +207,7 @@ public:
             VLOGD("create", "./magiskpolicy", dest.data());
             xsymlink("./magiskpolicy", dest.data());
         }
-        create_and_mount("magisk", src);
-        xmount(nullptr, node_path().data(), nullptr, MS_REMOUNT | MS_BIND | MS_RDONLY, nullptr);
+        create_and_mount("magisk", src, true);
     }
 };
 
@@ -217,8 +218,7 @@ public:
 
     void mount() override {
         const string src = get_magisk_tmp() + "/magisk"s + (is64bit ? "64" : "32");
-        create_and_mount("zygisk", src);
-        xmount(nullptr, node_path().data(), nullptr, MS_REMOUNT | MS_BIND | MS_RDONLY, nullptr);
+        create_and_mount("zygisk", src, true);
     }
 
 private:
@@ -313,12 +313,12 @@ void load_modules() {
             native_bridge_orig = "0";
         }
         native_bridge = native_bridge_orig != "0" ? ZYGISKLDR + native_bridge_orig : ZYGISKLDR;
-        set_prop(NBPROP, native_bridge.data(), true);
+        set_prop(NBPROP, native_bridge.data());
         // Weather Huawei's Maple compiler is enabled.
         // If so, system server will be created by a special Zygote which ignores the native bridge
         // and make system server out of our control. Avoid it by disabling.
         if (get_prop("ro.maple.enable") == "1") {
-            set_prop("ro.maple.enable", "0", true);
+            set_prop("ro.maple.enable", "0");
         }
         inject_zygisk_libs(system);
     }
@@ -516,24 +516,4 @@ void exec_module_scripts(const char *stage) {
     std::transform(module_list->begin(), module_list->end(), std::back_inserter(module_names),
         [](const module_info &info) -> string_view { return info.name; });
     exec_module_scripts(stage, module_names);
-}
-
-void reset_zygisk(bool restore) {
-    if (!zygisk_enabled) return;
-    static atomic_uint zygote_start_count{1};
-    if (restore) {
-        zygote_start_count = 1;
-    } else if (zygote_start_count.fetch_add(1) > 3) {
-        LOGW("zygote crashes too many times, rolling-back\n");
-        restore = true;
-    }
-    if (restore) {
-        string native_bridge_orig = "0";
-        if (native_bridge.length() > strlen(ZYGISKLDR)) {
-            native_bridge_orig = native_bridge.substr(strlen(ZYGISKLDR));
-        }
-        set_prop(NBPROP, native_bridge_orig.data(), true);
-    } else {
-        set_prop(NBPROP, native_bridge.data(), true);
-    }
 }

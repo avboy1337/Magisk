@@ -1,5 +1,6 @@
 #![feature(format_args_nl)]
 #![feature(btree_extract_if)]
+#![feature(iter_intersperse)]
 
 pub use base;
 use cpio::cpio_commands;
@@ -24,6 +25,8 @@ pub mod ffi {
     unsafe extern "C++" {
         include!("compress.hpp");
         fn decompress(buf: &[u8], fd: i32) -> bool;
+        fn xz(buf: &[u8], out: &mut Vec<u8>) -> bool;
+        fn unxz(buf: &[u8], out: &mut Vec<u8>) -> bool;
 
         include!("bootimg.hpp");
         #[cxx_name = "boot_img"]
